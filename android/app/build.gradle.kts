@@ -6,12 +6,24 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-// Release key lives outside the repo (see keystore.properties, gitignored).
+// Release key lives outside the repo: keystore.properties locally (gitignored), environment
+// variables in CI (see .github/workflows/release.yml).
 val keystoreProps = Properties().apply {
     val f = rootProject.file("keystore.properties")
     if (f.exists()) f.inputStream().use { load(it) }
+    System.getenv("ANDROID_KEYSTORE_FILE")?.let { file ->
+        setProperty("storeFile", file)
+        setProperty("storePassword", System.getenv("ANDROID_KEYSTORE_PASSWORD"))
+        setProperty("keyAlias", System.getenv("ANDROID_KEY_ALIAS"))
+        setProperty("keyPassword", System.getenv("ANDROID_KEY_PASSWORD") ?: System.getenv("ANDROID_KEYSTORE_PASSWORD"))
+    }
 }
 val hasReleaseKey = keystoreProps.getProperty("storeFile") != null
+
+// Release builds take their version from the git tag (v0.8.0 -> 0.8.0, code 800).
+val appVersionName = System.getenv("APP_VERSION")?.removePrefix("v") ?: "0.8.0"
+val appVersionCode = appVersionName.split('.', '-').take(3).map { it.toIntOrNull() ?: 0 }
+    .let { (it + listOf(0, 0, 0)).take(3) }.let { (major, minor, patch) -> major * 10000 + minor * 100 + patch }
 
 android {
     namespace = "io.github.nideta231.hermesremote"
@@ -21,8 +33,8 @@ android {
         applicationId = "io.github.nideta231.hermesremote"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.7.1"
+        versionCode = appVersionCode
+        versionName = appVersionName
     }
 
     signingConfigs {
