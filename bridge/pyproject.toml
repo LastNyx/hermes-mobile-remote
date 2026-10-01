@@ -1,0 +1,30 @@
+[project]
+name = "hermes-remote-bridge"
+version = "0.1.0"
+description = "Self-hosted bridge between the Hermes Mobile Remote Android app and the local Hermes Agent API server"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "httpx>=0.27",
+    "segno>=1.6",
+]
+
+[project.scripts]
+hermes-remote-bridge = "hermes_remote_bridge.cli:main"
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.13.1",
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

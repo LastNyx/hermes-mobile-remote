@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The bridge is plain HTTP, reached either over the local network or inside Tailscale's
+  WireGuard tunnel (encrypted end to end between your devices). Android's config cannot express
+  either the 100.64.0.0/10 tailnet range or a whole RFC1918 LAN, so cleartext is permitted here
+  and the restriction is enforced in code instead: BridgeClient refuses every host that is
+  neither a tailnet address nor a private LAN address, before the token is attached. The app
+  makes no other network calls.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Hermes Remote</string>
+    <style name="Theme.HermesRemote" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+    <color name="bg">#FF121316</color>
+    <color name="icon_bg">#FF1B1D24</color>
+    <color name="icon_fg">#FFE8B54A</color>
+</resources>
