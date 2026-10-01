@@ -141,6 +141,10 @@ class MainActivity : ComponentActivity() {
         val models by vm.models.collectAsState()
         val choice by vm.modelChoice.collectAsState()
         val conn by vm.connection.collectAsState()
+        val reasoning by vm.reasoning.collectAsState()
+        val commands by vm.commands.collectAsState()
+        val openModelPicker by vm.openModelPicker.collectAsState()
+        val update by vm.update.collectAsState()
         val toast by vm.toast.collectAsState()
         var tab by rememberSaveable { mutableStateOf(Tab.AGENT) }
         if (openAgentTab.value) { tab = Tab.AGENT; openAgentTab.value = false }
@@ -153,7 +157,8 @@ class MainActivity : ComponentActivity() {
 
         val agent: @Composable () -> Unit = {
             AgentScreen(chat, vm::send, vm::stop, vm::steer, vm::answerApproval,
-                models, choice, vm::loadModels, vm::chooseModel, vm::togglePin, vm::setDraft)
+                models, choice, vm::loadModels, vm::chooseModel, vm::togglePin, vm::setDraft,
+                reasoning, vm::setReasoning, commands, vm::loadCommands, openModelPicker, vm::modelPickerOpened)
         }
         val sessionList: @Composable (Boolean) -> Unit = { switchTab ->
             SessionsScreen(sessions, chat.sessionId, activeRunSession,
@@ -193,7 +198,8 @@ class MainActivity : ComponentActivity() {
                             Box(Modifier.weight(1f)) { agent() }
                         }
                         Tab.DESKTOP -> DesktopScreen(desktop, desktopOk, vm::loadDesktop)
-                        Tab.SYSTEM -> SystemScreen(system, pairing, vm::refreshStatus, vm::unpair, vm::setApprovalMode, conn, vm::useTransport, vm::useAutoTransport)
+                        Tab.SYSTEM -> SystemScreen(system, pairing, vm::refreshStatus, vm::unpair, vm::setApprovalMode, conn, vm::useTransport, vm::useAutoTransport,
+                            update, { vm.checkForUpdate() }, vm::installUpdate)
                     }
                 }
             } else {
@@ -202,7 +208,8 @@ class MainActivity : ComponentActivity() {
                         Tab.AGENT -> agent()
                         Tab.SESSIONS -> sessionList(true)
                         Tab.DESKTOP -> DesktopScreen(desktop, desktopOk, vm::loadDesktop)
-                        Tab.SYSTEM -> SystemScreen(system, pairing, vm::refreshStatus, vm::unpair, vm::setApprovalMode, conn, vm::useTransport, vm::useAutoTransport)
+                        Tab.SYSTEM -> SystemScreen(system, pairing, vm::refreshStatus, vm::unpair, vm::setApprovalMode, conn, vm::useTransport, vm::useAutoTransport,
+                            update, { vm.checkForUpdate() }, vm::installUpdate)
                     }
                 }
             }

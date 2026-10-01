@@ -21,6 +21,31 @@ sealed interface ChatItem {
     ) : ChatItem
     data class Approval(override val key: String, val request: ApprovalRequest, val decided: String? = null) : ChatItem
     data class Notice(override val key: String, val text: String, val error: Boolean = false) : ChatItem
+    /** Output of a slash command that ran on the PC. Local to the app; not part of the transcript. */
+    data class CommandOutput(override val key: String, val command: String, val text: String) : ChatItem
+}
+
+private const val SKILL_PREFIX = "[IMPORTANT: The user has invoked the "
+private const val SKILL_INSTRUCTION = "The user has provided the following instruction alongside the skill invocation: "
+private const val PLAN_PREFIX = "[/plan — plan mode]"
+
+/**
+ * A user turn as the user typed it. Skills and /plan expand into long prompts before they reach
+ * the model; show "/humanizer fix this" instead of the whole skill body, like the desktop app does.
+ */
+fun displayUserText(text: String): String {
+    if (text.startsWith(SKILL_PREFIX)) {
+        val name = Regex("^" + Regex.escape(SKILL_PREFIX) + "\"([^\"]*)\"").find(text)?.groupValues?.get(1)?.trim().orEmpty()
+        val label = if (name.startsWith("/")) name else "/$name"
+        val at = text.lastIndexOf(SKILL_INSTRUCTION)
+        val instruction = if (at < 0) "" else text.substring(at + SKILL_INSTRUCTION.length).substringBefore("\n\n[Runtime note:").trim()
+        return if (instruction.isEmpty()) label else "$label $instruction"
+    }
+    if (text.startsWith(PLAN_PREFIX)) {
+        val task = text.substringAfter("Task to plan:\n", "").substringBefore("\n\n").trim()
+        return if (task.isEmpty()) "/plan" else "/plan $task"
+    }
+    return text
 }
 
 private fun contentText(v: Any?): String = when (v) {
@@ -55,7 +80,7 @@ object HistoryMapper {
         for (m in messages.objects()) {
             val id = m.optString("id")
             when (m.optString("role")) {
-                "user" -> items += ChatItem.User("h-$id", contentText(m.opt("content")))
+                "user" -> items += ChatItem.User("h-$id", displayUserText(contentText(m.opt("content"))))
                 "assistant" -> {
                     val text = contentText(m.opt("content"))
                     if (text.isNotBlank()) items += ChatItem.Assistant("h-$id", text.trim())
@@ -94,7 +119,7 @@ object HistoryMapper {
     }
 
     fun lastUserText(messages: JSONArray): String? =
-        messages.objects().lastOrNull { it.optString("role") == "user" }?.let { contentText(it.opt("content")) }
+        messages.objects().lastOrNull { it.optString("role") == "user" }?.let { displayUserText(contentText(it.opt("content"))) }
 }
 
 /** Folds live run events into the chat. Pure; event ids already de-duplicated by the caller. */

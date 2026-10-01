@@ -61,6 +61,8 @@ import io.github.nideta231.hermesremote.ChatState
 import io.github.nideta231.hermesremote.Link
 import io.github.nideta231.hermesremote.data.ModelCatalog
 import io.github.nideta231.hermesremote.data.ModelOption
+import io.github.nideta231.hermesremote.data.SlashCommand
+import io.github.nideta231.hermesremote.data.matchCommands
 import io.github.nideta231.hermesremote.data.ChatItem
 import io.github.nideta231.hermesremote.data.ToolStatus
 
@@ -77,9 +79,16 @@ fun AgentScreen(
     onChooseModel: (ModelOption?) -> Unit = {},
     onTogglePin: () -> Unit = {},
     onDraft: (String) -> Unit = {},
+    reasoning: String? = null,
+    onReasoning: (String?) -> Unit = {},
+    commands: List<SlashCommand> = emptyList(),
+    onLoadCommands: () -> Unit = {},
+    openModelPicker: Boolean = false,
+    onModelPickerOpened: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize().imePadding()) {
-        ChatHeader(state, catalog, choice, onLoadModels, onChooseModel, onTogglePin)
+        ChatHeader(state, catalog, choice, onLoadModels, onChooseModel, onTogglePin, reasoning, onReasoning,
+            openModelPicker, onModelPickerOpened)
         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
@@ -88,7 +97,46 @@ fun AgentScreen(
                 else -> MessageList(state, onApproval)
             }
         }
+        SlashSuggestions(state, commands, onLoadCommands, onDraft)
         Composer(state, onSend, onStop, onSteer, onDraft)
+    }
+}
+
+/** Command list shown above the composer while the draft is "/" + a partial name. */
+@Composable
+private fun SlashSuggestions(state: ChatState, commands: List<SlashCommand>, onLoad: () -> Unit, onDraft: (String) -> Unit) {
+    val typing = state.draft.startsWith("/") && !state.busy
+    LaunchedEffect(typing) { if (typing) onLoad() }
+    if (!typing) return
+    val matches = remember(commands, state.draft) { matchCommands(commands, state.draft) }
+    if (matches.isEmpty()) {
+        if (commands.isEmpty() && !state.draft.contains(' ')) {
+            Text("Loading commands…", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+        }
+        return
+    }
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 240.dp)) {
+            items(matches, key = { it.name }) { c ->
+                Row(Modifier.fillMaxWidth().clickable { onDraft("/${c.name} ") }.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("/${c.name}", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                            if (c.args.isNotEmpty()) {
+                                Spacer(Modifier.size(6.dp))
+                                Text(c.args, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        Text(c.description, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (c.kind == "skill") Text("skill", style = MaterialTheme.typography.labelSmall, color = Gold)
+                }
+            }
+        }
     }
 }
 
@@ -100,8 +148,13 @@ private fun ChatHeader(
     onLoadModels: () -> Unit,
     onChooseModel: (ModelOption?) -> Unit,
     onTogglePin: () -> Unit,
+    reasoning: String?,
+    onReasoning: (String?) -> Unit,
+    openModelPicker: Boolean,
+    onModelPickerOpened: () -> Unit,
 ) {
     var picker by remember { mutableStateOf(false) }
+    LaunchedEffect(openModelPicker) { if (openModelPicker) { picker = true; onModelPickerOpened() } }
     Column {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
@@ -136,7 +189,8 @@ private fun ChatHeader(
                 }
             }
         }
-        ModelRow(state, catalog, choice, onOpen = { onLoadModels(); picker = true }, onReset = { onChooseModel(null) })
+        ModelRow(state, catalog, choice, onOpen = { onLoadModels(); picker = true }, onReset = { onChooseModel(null) },
+            reasoning = reasoning, onReasoning = onReasoning, onLoadModels = onLoadModels)
         if (picker) {
             ModelPickerSheet(catalog, choice, onDismiss = { picker = false }) {
                 onChooseModel(it); picker = false
@@ -146,7 +200,8 @@ private fun ChatHeader(
 }
 
 @Composable
-private fun ModelRow(state: ChatState, catalog: ModelCatalog?, choice: ModelOption?, onOpen: () -> Unit, onReset: () -> Unit) {
+private fun ModelRow(state: ChatState, catalog: ModelCatalog?, choice: ModelOption?, onOpen: () -> Unit, onReset: () -> Unit,
+                     reasoning: String?, onReasoning: (String?) -> Unit, onLoadModels: () -> Unit) {
     val label = choice?.let { "${it.providerName}: ${it.label}" }
         ?: state.sessionModel
         ?: catalog?.currentModel
@@ -160,6 +215,36 @@ private fun ModelRow(state: ChatState, catalog: ModelCatalog?, choice: ModelOpti
         if (choice != null) {
             TextButton(onClick = onReset, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
                 Text("reset", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            }
+        }
+        ReasoningMenu(catalog, reasoning, onReasoning, onLoadModels)
+    }
+}
+
+private fun effortLabel(level: String) = when (level) {
+    "none" -> "Off"
+    "xhigh" -> "Extra high"
+    else -> level.replaceFirstChar { it.uppercase() }
+}
+
+@Composable
+private fun ReasoningMenu(catalog: ModelCatalog?, reasoning: String?, onReasoning: (String?) -> Unit, onLoadModels: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val levels = catalog?.reasoningLevels ?: io.github.nideta231.hermesremote.data.REASONING_LEVELS
+    Box {
+        TextButton(onClick = { onLoadModels(); open = true }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+            Text("Reasoning: ${reasoning?.let(::effortLabel) ?: "Default"} ▾", style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary, maxLines = 1)
+        }
+        androidx.compose.material3.DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            val default = catalog?.reasoningDefault?.let { " (${effortLabel(it)})" } ?: ""
+            androidx.compose.material3.DropdownMenuItem(
+                text = { Text("Default$default", fontWeight = if (reasoning == null) FontWeight.SemiBold else FontWeight.Normal) },
+                onClick = { onReasoning(null); open = false })
+            levels.forEach { level ->
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text(effortLabel(level), fontWeight = if (reasoning == level) FontWeight.SemiBold else FontWeight.Normal) },
+                    onClick = { onReasoning(level); open = false })
             }
         }
     }
@@ -277,6 +362,21 @@ private fun MessageList(state: ChatState, onApproval: (String) -> Unit) {
                 is ChatItem.Notice -> Text(item.text, style = MaterialTheme.typography.labelMedium,
                     color = if (item.error) Bad else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp))
+                is ChatItem.CommandOutput -> CommandOutputCard(item)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommandOutputCard(item: ChatItem.CommandOutput) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Text(item.command, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            androidx.compose.foundation.text.selection.SelectionContainer {
+                Text(item.text, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, fontSize = 12.sp,
+                    lineHeight = 16.sp, modifier = Modifier.padding(top = 4.dp))
             }
         }
     }
@@ -375,7 +475,7 @@ private fun Composer(state: ChatState, onSend: (String) -> Unit, onStop: () -> U
             OutlinedTextField(
                 value = text, onValueChange = onDraft,
                 modifier = Modifier.weight(1f),
-                placeholder = { Text(if (state.busy) "Steer the running task…" else "Message Hermes…") },
+                placeholder = { Text(if (state.busy) "Steer the running task…" else "Message Hermes… (/ for commands)") },
                 maxLines = 6, shape = RoundedCornerShape(20.dp),
             )
             Spacer(Modifier.size(8.dp))

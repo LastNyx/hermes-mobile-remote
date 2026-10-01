@@ -78,6 +78,11 @@ class CredentialStore(context: Context) {
         get() = prefs.getString("transport_mode", "auto") ?: "auto"
         set(v) = prefs.edit().putString("transport_mode", v).apply()
 
+    /** Reasoning effort for runs started from the app; null leaves it to Hermes' config. */
+    var reasoningEffort: String?
+        get() = prefs.getString("reasoning_effort", null)
+        set(v) = prefs.edit().putString("reasoning_effort", v).apply()
+
     var lastSessionId: String?
         get() = prefs.getString("last_session", null)
         set(v) = prefs.edit().putString("last_session", v).apply()

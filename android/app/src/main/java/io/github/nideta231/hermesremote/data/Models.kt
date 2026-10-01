@@ -43,6 +43,9 @@ data class ModelCatalog(
     val currentModel: String?,
     val currentProvider: String?,
     val options: List<ModelOption>,
+    /** Effort Hermes uses when the app doesn't pick one, and the levels to offer. */
+    val reasoningDefault: String = "medium",
+    val reasoningLevels: List<String> = REASONING_LEVELS,
 ) {
     val selected: ModelOption?
         get() = options.firstOrNull { it.id == currentModel && it.provider == currentProvider }
@@ -126,5 +129,35 @@ fun parseCatalog(o: JSONObject): ModelCatalog {
             options += ModelOption(slug, name, m, m.substringAfterLast('/'), p.optBoolean("current", false))
         }
     }
-    return ModelCatalog(cur?.str("model"), cur?.str("provider"), options)
+    val reasoning = o.optJSONObject("reasoning")
+    return ModelCatalog(cur?.str("model"), cur?.str("provider"), options,
+        reasoning?.str("default") ?: "medium",
+        reasoning?.optJSONArray("levels")?.strings()?.takeIf { it.isNotEmpty() } ?: REASONING_LEVELS)
+}
+
+val REASONING_LEVELS = listOf("none", "low", "medium", "high", "xhigh", "max")
+
+/** One entry of the bridge's slash command list. [kind]: app, output, prompt or skill. */
+data class SlashCommand(val name: String, val description: String, val args: String, val kind: String)
+
+fun parseCommands(o: JSONObject): List<SlashCommand> = o.optJSONArray("data").objects().mapNotNull { c ->
+    val name = c.str("name") ?: return@mapNotNull null
+    SlashCommand(name, c.str("description") ?: "", c.str("args") ?: "", c.str("kind") ?: "output")
+}
+
+/** What running a command on the PC produced: text to show, or a prompt to send as a run. */
+sealed interface CommandReply {
+    data class Output(val text: String) : CommandReply
+    data class Send(val message: String, val display: String) : CommandReply
+}
+
+fun parseCommandReply(o: JSONObject): CommandReply =
+    if (o.optString("type") == "send") CommandReply.Send(o.getString("message"), o.str("display") ?: o.getString("message"))
+    else CommandReply.Output(o.str("text") ?: "")
+
+/** Commands whose name starts with what was typed after "/", app commands first. */
+fun matchCommands(all: List<SlashCommand>, typed: String): List<SlashCommand> {
+    if (!typed.startsWith("/") || typed.contains(' ') || typed.contains('\n')) return emptyList()
+    val q = typed.drop(1).lowercase()
+    return all.filter { it.name.startsWith(q) }.sortedBy { if (it.kind == "skill") 1 else 0 }
 }

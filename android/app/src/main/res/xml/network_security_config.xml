@@ -4,8 +4,8 @@
   WireGuard tunnel (encrypted end to end between your devices). Android's config cannot express
   either the 100.64.0.0/10 tailnet range or a whole RFC1918 LAN, so cleartext is permitted here
   and the restriction is enforced in code instead: BridgeClient refuses every host that is
-  neither a tailnet address nor a private LAN address, before the token is attached. The app
-  makes no other network calls.
+  neither a tailnet address nor a private LAN address, before the token is attached. The only
+  other traffic is the update check against GitHub Releases, which is HTTPS and carries no token.
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true">

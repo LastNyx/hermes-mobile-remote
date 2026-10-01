@@ -22,6 +22,12 @@ Hermes API key, and only lets in phones you paired.
 - **Approvals:** approve or deny tool calls from the app. System tab → Command approvals switches
   Hermes' global `approvals.mode` (Manual, Smart, Off).
 - **Model picker:** choose, per message, any model your configured providers can actually serve.
+- **Reasoning effort:** Off, Low, Medium, High, Extra high or Max per message, or Hermes' default.
+- **Slash commands:** type `/` for Hermes' commands and your skills, with suggestions. `/title`,
+  `/compress`, `/status`, `/tools`, `/memory`, `/plan` and every skill run on the PC exactly as on
+  the desktop. `/model`, `/reasoning`, `/new` and `/stop` map onto the app's own controls.
+- **Auto-update:** the app checks GitHub Releases at startup and installs new versions in place
+  (System tab → App version).
 - **Notifications:** get notified when a run you started finishes or needs approval while the
   app is in the background.
 - **Local network first:** on Wi-Fi you trust (home, office), the phone connects directly. Tailscale
@@ -61,8 +67,8 @@ The installer is safe to re-run. It:
 
 On the phone:
 
-1. Install the APK from [Releases](https://github.com/nideta231/hermes-mobile-remote/releases),
-   or [build it](#building-the-app).
+1. Install the APK from [Releases](https://github.com/nideta231/hermes-mobile-remote/releases/latest),
+   or [build it](#building-the-app). Later versions install from inside the app.
 2. On the PC, run `bridge/.venv/bin/hermes-remote-bridge pair phone`.
 3. In the app, tap **Scan pairing QR code**. Each QR code pairs exactly one device.
 
@@ -123,6 +129,9 @@ journalctl --user -u hermes-remote-bridge -f
 - **Firewall changes:** only private address ranges are allowed, and only after you confirm.
 - **Audit log:** `~/.local/state/hermes-remote/audit.log` records device, path, status and duration.
   It never contains tokens or prompts.
+- **Updates:** the update check is the app's only traffic outside the bridge: HTTPS to GitHub, no
+  token. The APK's SHA-256 is checked against the one GitHub reports, and Android installs it only
+  if it's signed with the same key as the installed app.
 - **Safeguards:** deleting a session needs a confirmation, and the bridge rejects a delete that
   doesn't repeat the session id. Resent messages are deduplicated. Each session can have only one
   active run at a time.
@@ -141,6 +150,22 @@ cd android
 Without `android/keystore.properties` you get a debug-signed APK. For release-signed builds, create
 that file (it's gitignored) with `storeFile`, `storePassword`, `keyAlias` and `keyPassword`. Keep the
 keystore safe: Android only installs updates signed with the same key.
+
+A self-built APK is signed with a different key than the official releases, so the in-app updater
+can't replace it with a release (Android refuses). Uninstall once to switch.
+
+## Releasing
+
+Pushing a version tag builds, signs and publishes the APK; installed apps pick it up from there.
+
+```bash
+git tag v0.8.1 && git push origin v0.8.1
+```
+
+The version comes from the tag (`v0.8.1` → versionName `0.8.1`, versionCode `801`). Signing uses
+three repository secrets: `ANDROID_KEYSTORE_BASE64` (the keystore, base64), `ANDROID_KEYSTORE_PASSWORD`
+and `ANDROID_KEY_ALIAS`. Forks that publish their own builds need their own key and must change
+`Updater.REPO` to their repository.
 
 ## Development
 
@@ -167,6 +192,8 @@ The bridge's HTTP API is documented in [`docs/bridge-api.md`](docs/bridge-api.md
 - **Notifications:** only runs started from the app trigger them, not runs started on the PC.
 - **Battery savers:** some Android vendors (Xiaomi, Huawei and others) stop background apps
   aggressively. If notifications stop arriving, allow the app to run in the background.
+- **Slash commands:** commands that need the agent loaded in memory on the PC (`/retry`, `/undo`,
+  `/btw`, `/goal`, `/usage`, ...) aren't offered; they'd act on an empty agent from the bridge.
 - **Platform:** the bridge is Linux-only for now.
 
 ## License

@@ -1,12 +1,19 @@
 package io.github.nideta231.hermesremote
 
 import android.app.Application
+import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.viewModelScope
+import io.github.nideta231.hermesremote.data.AppUpdate
 import io.github.nideta231.hermesremote.data.BridgeClient
+import io.github.nideta231.hermesremote.data.CommandReply
+import io.github.nideta231.hermesremote.data.REASONING_LEVELS
+import io.github.nideta231.hermesremote.data.SlashCommand
+import io.github.nideta231.hermesremote.data.UpdateEvents
+import io.github.nideta231.hermesremote.data.Updater
 import io.github.nideta231.hermesremote.data.BridgeException
 import io.github.nideta231.hermesremote.data.ChatItem
 import io.github.nideta231.hermesremote.data.ComponentStatus
@@ -94,6 +101,16 @@ data class SystemState(
     val approvalSaving: Boolean = false,
 )
 
+data class UpdateState(
+    val installed: String = "",
+    val available: AppUpdate? = null,
+    val checking: Boolean = false,
+    /** 0..1 while downloading, null otherwise. */
+    val progress: Float? = null,
+    val checkedAt: Long? = null,
+    val error: String? = null,
+)
+
 class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     private val store = CredentialStore(app)
     private val drafts = DraftStore(app)
@@ -124,6 +141,21 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     /** Model picked for the next send; null means "whatever the session already uses". */
     private val _modelChoice = MutableStateFlow<ModelOption?>(null)
     val modelChoice: StateFlow<ModelOption?> = _modelChoice.asStateFlow()
+
+    /** Reasoning effort for the next send; null means Hermes' configured default. */
+    private val _reasoning = MutableStateFlow(store.reasoningEffort)
+    val reasoning: StateFlow<String?> = _reasoning.asStateFlow()
+
+    private val _commands = MutableStateFlow<List<SlashCommand>>(emptyList())
+    val commands: StateFlow<List<SlashCommand>> = _commands.asStateFlow()
+
+    /** Set by "/model" with no argument: the UI opens the model picker and clears it. */
+    private val _openModelPicker = MutableStateFlow(false)
+    val openModelPicker: StateFlow<Boolean> = _openModelPicker.asStateFlow()
+
+    private val updater = Updater(app)
+    private val _update = MutableStateFlow(UpdateState(installed = updater.installedVersion))
+    val update: StateFlow<UpdateState> = _update.asStateFlow()
 
     private var followJob: Job? = null
     private var followCursor = 0
@@ -192,6 +224,16 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
 
     init {
         _pairing.value?.let { start(it) }
+        checkForUpdate(quiet = true)
+        viewModelScope.launch {
+            UpdateEvents.failure.collect { msg ->
+                if (msg != null) {
+                    _update.update { it.copy(progress = null, error = msg) }
+                    _toast.value = msg
+                    UpdateEvents.failure.value = null
+                }
+            }
+        }
         ProcessLifecycleOwner.get().lifecycle.addObserver(foregroundObserver)
         runCatching { connectivity?.registerDefaultNetworkCallback(networkCallback) }
     }
@@ -606,19 +648,26 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     // ------------------------------------------------------------ runs
 
     fun send(text: String) {
+        val trimmed = text.trim()
+        if (trimmed.startsWith("/") && !trimmed.startsWith("//")) return runSlash(trimmed)
+        sendMessage(trimmed.removePrefix("/"), trimmed.removePrefix("/"))
+    }
+
+    /** Starts a run with [text]; the chat shows [display] (what the user typed) for it. */
+    private fun sendMessage(text: String, display: String) {
         val c = client ?: return
         val trimmed = text.trim()
         if (trimmed.isEmpty() || _chat.value.busy || _chat.value.sending) return
         val requestId = UUID.randomUUID().toString().replace("-", "")
-        _chat.update { it.copy(sending = true, items = it.items + ChatItem.User("u-$requestId", trimmed, pending = true)) }
+        _chat.update { it.copy(sending = true, items = it.items + ChatItem.User("u-$requestId", display, pending = true)) }
         viewModelScope.launch {
             try {
-                val sid = _chat.value.sessionId ?: c.createSession(trimmed.lineSequence().first().take(60)).also { s ->
+                val sid = _chat.value.sessionId ?: c.createSession(display.lineSequence().first().take(60)).also { s ->
                     store.lastSessionId = s.id
                     // The draft was keyed to "no session yet"; move it to the real id so it comes
                     // back if the user switches tabs mid-turn.
                     val carried = _chat.value.draft
-                    if (carried.isNotEmpty() && carried != trimmed) drafts.put(s.id, carried)
+                    if (carried.isNotEmpty() && carried != display) drafts.put(s.id, carried)
                     drafts.clear(null)
                     _chat.update { it.copy(sessionId = s.id, title = s.displayTitle) }
                 }.id
@@ -646,12 +695,12 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         var wait = 1000L
         repeat(4) {
             try {
-                return c.startRun(sid, text, requestId, choice?.id, choice?.provider)
+                return c.startRun(sid, text, requestId, choice?.id, choice?.provider, _reasoning.value)
             } catch (e: IOException) {
                 delay(wait); wait *= 2
             }
         }
-        return c.startRun(sid, text, requestId, choice?.id, choice?.provider)
+        return c.startRun(sid, text, requestId, choice?.id, choice?.provider, _reasoning.value)
     }
 
     private suspend fun retryPendingSend() {
@@ -753,6 +802,150 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         val pending = _chat.value.items.lastOrNull { it is ChatItem.Approval && it.decided == null } as? ChatItem.Approval
         viewModelScope.launch {
             try { c.approve(run.runId, choice, pending?.request?.requestId) } catch (t: Throwable) { say(t) }
+        }
+    }
+
+    // ------------------------------------------------------------ slash commands + reasoning
+
+    fun loadCommands() {
+        val c = client ?: return
+        if (_commands.value.isNotEmpty()) return
+        viewModelScope.launch {
+            runCatching { c.commands() }.onSuccess { _commands.value = it }
+        }
+    }
+
+    fun setReasoning(effort: String?) {
+        _reasoning.value = effort
+        store.reasoningEffort = effort
+    }
+
+    fun modelPickerOpened() { _openModelPicker.value = false }
+
+    private fun note(command: String, text: String) {
+        _chat.update { it.copy(items = it.items + ChatItem.CommandOutput("cmd-${System.nanoTime()}", command, text)) }
+    }
+
+    private fun runSlash(line: String) {
+        val name = line.drop(1).substringBefore(' ').lowercase()
+        val arg = line.substringAfter(' ', "").trim()
+        when (name) {
+            "new" -> return newChat()
+            "stop" -> return if (_chat.value.busy) stop() else note(line, "Nothing is running.")
+            "reasoning" -> return reasoningCommand(line, arg)
+            "model" -> return modelCommand(line, arg)
+        }
+        val c = client ?: return
+        if (_chat.value.busy || _chat.value.sending) return say(IllegalStateException("Wait for the current reply to finish."))
+        _chat.update { it.copy(sending = true) }
+        viewModelScope.launch {
+            try {
+                val sid = _chat.value.sessionId ?: c.createSession(null).also { s ->
+                    store.lastSessionId = s.id
+                    drafts.clear(null)
+                    _chat.update { it.copy(sessionId = s.id, title = s.displayTitle) }
+                }.id
+                when (val reply = c.runCommand(sid, line)) {
+                    is CommandReply.Output -> {
+                        _chat.update { it.copy(sending = false) }
+                        note(line, reply.text)
+                        if (name == "title" || name == "compress") reloadAfterCommand(sid)
+                    }
+                    is CommandReply.Send -> {
+                        _chat.update { it.copy(sending = false) }
+                        sendMessage(reply.message, reply.display)
+                    }
+                }
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _chat.update { it.copy(sending = false) }
+                say(t)
+            }
+        }
+    }
+
+    private fun reloadAfterCommand(sid: String) {
+        val c = client ?: return
+        viewModelScope.launch {
+            runCatching { c.session(sid) }.onSuccess { (s, _) ->
+                if (_chat.value.sessionId == sid) _chat.update { it.copy(title = s.displayTitle) }
+            }
+            refreshSessions()
+        }
+    }
+
+    private fun reasoningCommand(line: String, arg: String) {
+        val levels = _models.value?.reasoningLevels ?: REASONING_LEVELS
+        val wanted = when (arg.lowercase()) {
+            "" -> return note(line, "Reasoning effort: ${_reasoning.value ?: "default (${_models.value?.reasoningDefault ?: "from config"})"}\n" +
+                "Options: ${levels.joinToString(", ")}, default")
+            "off" -> "none"
+            "default", "reset" -> null
+            else -> arg.lowercase()
+        }
+        if (wanted != null && wanted !in levels) return note(line, "Unknown level “$arg”. Options: ${levels.joinToString(", ")}, default")
+        setReasoning(wanted)
+        note(line, "Reasoning effort for your next messages: ${wanted ?: "default"}")
+    }
+
+    private fun modelCommand(line: String, arg: String) {
+        if (arg.isEmpty()) {
+            loadModels()
+            _openModelPicker.value = true
+            return
+        }
+        val c = client ?: return
+        viewModelScope.launch {
+            val catalog = _models.value ?: runCatching { c.models() }.getOrNull()?.also { _models.value = it }
+                ?: return@launch note(line, "Couldn't load the model list from your PC.")
+            val q = arg.lowercase()
+            val hit = catalog.options.firstOrNull { it.id.lowercase() == q || it.label.lowercase() == q }
+                ?: catalog.options.filter { it.id.lowercase().contains(q) || it.label.lowercase().contains(q) }.singleOrNull()
+            if (hit == null) {
+                val near = catalog.options.filter { it.label.lowercase().contains(q.take(4)) }.take(5).joinToString { it.label }
+                note(line, "No single model matches “$arg”." + if (near.isNotEmpty()) " Close: $near" else "")
+            } else {
+                chooseModel(hit)
+                note(line, "Model for your next messages: ${hit.providerName}: ${hit.label}")
+            }
+        }
+    }
+
+    // ------------------------------------------------------------ app updates
+
+    fun checkForUpdate(quiet: Boolean = false) {
+        if (_update.value.checking || _update.value.progress != null) return
+        _update.update { it.copy(checking = true, error = null) }
+        viewModelScope.launch {
+            try {
+                val found = updater.check()
+                _update.update { it.copy(available = found, checking = false, checkedAt = System.currentTimeMillis()) }
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _update.update { it.copy(checking = false, error = if (quiet) null else "Couldn't check for updates: ${t.message}") }
+            }
+        }
+    }
+
+    fun installUpdate() {
+        val u = _update.value.available ?: return
+        if (_update.value.progress != null) return
+        if (!app.packageManager.canRequestPackageInstalls()) {
+            app.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                android.net.Uri.parse("package:${app.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            _toast.value = "Allow installs from Hermes Remote, then tap Update again."
+            return
+        }
+        _update.update { it.copy(progress = 0f, error = null) }
+        viewModelScope.launch {
+            try {
+                updater.install(u) { p -> _update.update { it.copy(progress = p) } }
+                _update.update { it.copy(progress = null) }
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _update.update { it.copy(progress = null, error = t.message) }
+                say(t)
+            }
         }
     }
 

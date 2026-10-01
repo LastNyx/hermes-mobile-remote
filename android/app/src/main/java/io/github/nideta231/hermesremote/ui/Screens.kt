@@ -267,7 +267,9 @@ private fun launch(context: Context, c: RdpClient, d: DesktopInfo) {
 @Composable
 fun SystemScreen(state: SystemState, pairing: Pairing?, onRefresh: () -> Unit, onUnpair: () -> Unit,
                  onApprovalMode: (String) -> Unit = {}, conn: ConnectionState = ConnectionState(),
-                 onUseTransport: (Transport) -> Unit = {}, onUseAuto: () -> Unit = {}) {
+                 onUseTransport: (Transport) -> Unit = {}, onUseAuto: () -> Unit = {},
+                 update: io.github.nideta231.hermesremote.UpdateState = io.github.nideta231.hermesremote.UpdateState(),
+                 onCheckUpdate: () -> Unit = {}, onInstallUpdate: () -> Unit = {}) {
     var confirmUnpair by remember { mutableStateOf(false) }
     PullToRefreshBox(isRefreshing = state.loading, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -311,6 +313,7 @@ fun SystemScreen(state: SystemState, pairing: Pairing?, onRefresh: () -> Unit, o
                 Text(it.url, fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             OutlinedButton(onClick = { confirmUnpair = true }) { Text("Unpair this device", color = Bad, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            UpdateCard(update, onCheckUpdate, onInstallUpdate)
         }
     }
     if (confirmUnpair) {
@@ -318,6 +321,43 @@ fun SystemScreen(state: SystemState, pairing: Pairing?, onRefresh: () -> Unit, o
             text = { Text("Removes the token from this device. Also run `hermes-remote-bridge revoke ${pairing?.device ?: "<name>"}` on the PC to invalidate it there.") },
             confirmButton = { TextButton(onClick = { confirmUnpair = false; onUnpair() }) { Text("Unpair", color = Bad) } },
             dismissButton = { TextButton(onClick = { confirmUnpair = false }) { Text("Cancel") } })
+    }
+}
+
+@Composable
+private fun UpdateCard(u: io.github.nideta231.hermesremote.UpdateState, onCheck: () -> Unit, onInstall: () -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("App version", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text(u.installed, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            val available = u.available
+            when {
+                u.progress != null -> {
+                    Text("Downloading ${available?.version ?: "update"}…", style = MaterialTheme.typography.bodySmall)
+                    androidx.compose.material3.LinearProgressIndicator(progress = { u.progress }, modifier = Modifier.fillMaxWidth())
+                }
+                available != null -> {
+                    Text("Version ${available.version} is available.", style = MaterialTheme.typography.bodyMedium, color = Ok)
+                    if (available.notes.isNotBlank()) {
+                        Text(available.notes.take(600), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 8, overflow = TextOverflow.Ellipsis)
+                    }
+                    androidx.compose.material3.Button(onClick = onInstall) { Text("Update to ${available.version}") }
+                }
+                else -> {
+                    val status = when {
+                        u.checking -> "Checking GitHub…"
+                        u.checkedAt != null -> "Up to date."
+                        else -> "Updates come from GitHub Releases."
+                    }
+                    Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick = onCheck, enabled = !u.checking, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("Check for updates") }
+                }
+            }
+            u.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Bad) }
+        }
     }
 }
 

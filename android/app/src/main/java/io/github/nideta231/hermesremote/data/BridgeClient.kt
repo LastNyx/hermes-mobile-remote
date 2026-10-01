@@ -177,13 +177,19 @@ class BridgeClient(
         call("PUT", "/v1/settings/approvals", body = JSONObject().put("mode", mode)).getString("mode")
 
     suspend fun startRun(sessionId: String, input: String, clientRequestId: String,
-                         model: String? = null, provider: String? = null): RunSnapshot =
+                         model: String? = null, provider: String? = null, reasoningEffort: String? = null): RunSnapshot =
         parseRun(call("POST", "/v1/runs", body = JSONObject()
             .put("session_id", sessionId).put("input", input).put("client_request_id", clientRequestId)
             .apply {
                 model?.let { put("model", it) }
                 provider?.let { put("provider", it) }
+                reasoningEffort?.let { put("reasoning_effort", it) }
             }))
+
+    suspend fun commands(): List<SlashCommand> = parseCommands(call("GET", "/v1/commands"))
+
+    suspend fun runCommand(sessionId: String, command: String): CommandReply =
+        parseCommandReply(call("POST", "/v1/sessions/${enc(sessionId)}/command", body = JSONObject().put("command", command)))
 
     suspend fun run(runId: String): RunSnapshot = parseRun(call("GET", "/v1/runs/${enc(runId)}"))
 
