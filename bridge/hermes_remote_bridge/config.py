@@ -36,6 +36,9 @@ class Config:
     hermes_env: Path = Path.home() / ".hermes" / ".env"
     # Hermes CLI, used only to read/write approvals.mode (its own validated config writer).
     hermes_bin: Path = Path.home() / ".hermes" / "hermes-agent" / "venv" / "bin" / "hermes"
+    # Hermes source checkout and its Python, used to run slash commands in Hermes' TUI gateway.
+    hermes_root: Path = Path.home() / ".hermes" / "hermes-agent"
+    hermes_python: Path = Path.home() / ".hermes" / "hermes-agent" / "venv" / "bin" / "python"
     # Tailscale login names allowed to connect. Empty means "the owner of this node".
     allowed_logins: list[str] = field(default_factory=list)
     krdp_unit: str = "app-org.kde.krdpserver.service"

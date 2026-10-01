@@ -24,6 +24,7 @@ from .config import Config
 from .devices import Device, DeviceStore
 from .hermes import HermesClient, HermesError
 from .runs import RunManager
+from .slash import SlashError, TuiGateway
 from .network import TrustStore, network_info, serving_lan_ips
 from .tailnet import TailnetClient, is_loopback, is_private_lan_ip, is_tailnet_ip
 
@@ -64,8 +65,14 @@ class CreateRun(BaseModel):
     # Per-run model override. Empty/None keeps the session's current model.
     model: str | None = Field(default=None, max_length=200)
     provider: str | None = Field(default=None, max_length=100)
+    # Per-run reasoning effort; None uses the session/config default.
+    reasoning_effort: str | None = Field(default=None, pattern=r"^(none|minimal|low|medium|high|xhigh|max)$")
     # Client-generated per user "send" action; resending the same id never starts a second run.
     client_request_id: str
+
+
+class SlashCommand(BaseModel):
+    command: str = Field(min_length=2, max_length=20_000, pattern=r"^/?[A-Za-z0-9][\w.-]*(\s[\s\S]*)?$")
 
 
 class SteerRun(BaseModel):
@@ -133,6 +140,7 @@ async def _tcp_open(host: str, port: int) -> bool:
 # ---------------------------------------------------------------- app factory
 
 APPROVAL_MODES = ("manual", "smart", "off")
+REASONING_LEVELS = ("none", "low", "medium", "high", "xhigh", "max")
 
 # Session source the bridge stamps on sessions it creates (see create_session).
 SESSION_SOURCE = "cli"
@@ -155,12 +163,13 @@ async def _hermes_cli(cfg: Config, *args: str) -> str:
 
 def create_app(cfg: Config, *, hermes: HermesClient | None = None, tailnet: TailnetClient | None = None,
                devices: DeviceStore | None = None, owner_login: str | None = None,
-               hermes_cli=None, trust: TrustStore | None = None) -> FastAPI:
+               hermes_cli=None, trust: TrustStore | None = None, slash: TuiGateway | None = None) -> FastAPI:
     hermes = hermes or HermesClient(cfg.hermes_url, cfg.hermes_env)
     cli = hermes_cli or (lambda *a: _hermes_cli(cfg, *a))
     tailnet = tailnet or TailnetClient()
     devices = devices or DeviceStore(cfg.devices_file)
     trust = trust or TrustStore(cfg.trust_file)
+    slash = slash or TuiGateway(cfg.hermes_root, cfg.hermes_python)
     allowed_logins = set(cfg.allowed_logins) or ({owner_login} if owner_login else set())
     audit = _audit_logger(cfg)
     limiter = RateLimiter()
@@ -180,6 +189,7 @@ def create_app(cfg: Config, *, hermes: HermesClient | None = None, tailnet: Tail
                         del client_requests[key]
                 with contextlib.suppress(Exception):
                     devices.flush_last_seen()
+                await slash.close_if_idle()
 
         task = asyncio.create_task(housekeeping())
         try:
@@ -187,6 +197,7 @@ def create_app(cfg: Config, *, hermes: HermesClient | None = None, tailnet: Tail
         finally:
             task.cancel()
             await runs.shutdown()
+            await slash.close()
             with contextlib.suppress(Exception):
                 devices.flush_last_seen()
             await hermes.aclose()
@@ -204,6 +215,10 @@ def create_app(cfg: Config, *, hermes: HermesClient | None = None, tailnet: Tail
     @app.exception_handler(ApiError)
     async def _api_error(_: Request, exc: ApiError):
         return _err(exc.status, exc.code, exc.message, **exc.extra)
+
+    @app.exception_handler(SlashError)
+    async def _slash_error(_: Request, exc: SlashError):
+        return _err(exc.status, exc.code, exc.message)
 
     @app.exception_handler(HermesError)
     async def _hermes_error(_: Request, exc: HermesError):
@@ -472,7 +487,29 @@ def create_app(cfg: Config, *, hermes: HermesClient | None = None, tailnet: Tail
                 "capabilities": {m: p.get("capabilities", {}).get(m) for m in featured},
             })
         return {"current": {"model": raw.get("model"), "provider": raw.get("provider")},
-                "providers": providers}
+                "providers": providers, "reasoning": await _reasoning_default()}
+
+    async def _reasoning_default() -> dict:
+        """Configured default effort plus the levels the app offers."""
+        effort = ""
+        with contextlib.suppress(Exception):
+            effort = (await cli("config", "get", "agent.reasoning_effort")).strip().strip('"').lower()
+        return {"default": effort or "medium", "levels": list(REASONING_LEVELS)}
+
+    # ------------------------------------------------------------ slash commands
+
+    @app.get("/v1/commands")
+    async def list_commands(_: Device = Depends(device_auth)):
+        return {"data": await slash.catalog()}
+
+    @app.post("/v1/sessions/{session_id}/command")
+    async def run_command(session_id: str, body: SlashCommand, device: Device = Depends(device_auth)):
+        _check_id(session_id, "session id")
+        if runs.active_for_session(session_id):
+            raise ApiError(409, "session_busy", "Wait for the current reply to finish")
+        if not limiter.allow(f"cmd:{device.id}", cfg.runs_per_minute):
+            raise ApiError(429, "rate_limited", "Too many commands")
+        return await slash.run(session_id, body.command)
 
     # ------------------------------------------------------------ runs
 
@@ -495,6 +532,8 @@ def create_app(cfg: Config, *, hermes: HermesClient | None = None, tailnet: Tail
             payload["model"] = body.model
         if body.provider:
             payload["provider"] = body.provider
+        if body.reasoning_effort:
+            payload["model_options"] = {"reasoning_effort": body.reasoning_effort}
         resp = await hermes.request("POST", "/v1/runs", json=payload,
                                     headers={"Idempotency-Key": dedupe_key})
         data = resp.json()
