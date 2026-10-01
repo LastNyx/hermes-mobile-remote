@@ -163,8 +163,8 @@ git tag v0.8.1 && git push origin v0.8.1
 ```
 
 The version comes from the tag (`v0.8.1` → versionName `0.8.1`, versionCode `801`). Signing uses
-three repository secrets: `ANDROID_KEYSTORE_BASE64` (the keystore, base64), `ANDROID_KEYSTORE_PASSWORD`
-and `ANDROID_KEY_ALIAS`. Forks that publish their own builds need their own key and must change
+two repository secrets: `ANDROID_KEYSTORE_BASE64` (the keystore, base64) and `ANDROID_KEYSTORE_PASSWORD`;
+the key alias is `release`. Forks that publish their own builds need their own key and must change
 `Updater.REPO` to their repository.
 
 ## Development
