@@ -1,20 +1,20 @@
-package com.nath.hermesremote
+package io.github.nideta231.hermesremote
 
-import com.nath.hermesremote.data.ChatItem
-import com.nath.hermesremote.data.Endpoint
-import com.nath.hermesremote.data.EndpointResolver
-import com.nath.hermesremote.data.Transport
-import com.nath.hermesremote.data.TransportMode
-import com.nath.hermesremote.data.HistoryMapper
-import com.nath.hermesremote.data.LanDiscovery
-import com.nath.hermesremote.data.LiveReducer
-import com.nath.hermesremote.data.PairingParser
-import com.nath.hermesremote.data.parseCatalog
-import com.nath.hermesremote.data.parseSession
-import com.nath.hermesremote.data.SseEvent
-import com.nath.hermesremote.data.SseParser
-import com.nath.hermesremote.data.Tailnet
-import com.nath.hermesremote.data.ToolStatus
+import io.github.nideta231.hermesremote.data.ChatItem
+import io.github.nideta231.hermesremote.data.Endpoint
+import io.github.nideta231.hermesremote.data.EndpointResolver
+import io.github.nideta231.hermesremote.data.Transport
+import io.github.nideta231.hermesremote.data.TransportMode
+import io.github.nideta231.hermesremote.data.HistoryMapper
+import io.github.nideta231.hermesremote.data.LanDiscovery
+import io.github.nideta231.hermesremote.data.LiveReducer
+import io.github.nideta231.hermesremote.data.PairingParser
+import io.github.nideta231.hermesremote.data.parseCatalog
+import io.github.nideta231.hermesremote.data.parseSession
+import io.github.nideta231.hermesremote.data.SseEvent
+import io.github.nideta231.hermesremote.data.SseParser
+import io.github.nideta231.hermesremote.data.Tailnet
+import io.github.nideta231.hermesremote.data.ToolStatus
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -178,7 +178,7 @@ private class FakePrefs : android.content.SharedPreferences {
 }
 
 class DraftStoreTest {
-    private val store = com.nath.hermesremote.data.DraftStore(FakePrefs())
+    private val store = io.github.nideta231.hermesremote.data.DraftStore(FakePrefs())
 
     @Test fun draftSurvivesReopeningTheSession() {
         store.put("s1", "half written")
@@ -283,7 +283,7 @@ class EndpointResolverTest {
 class NotifierTextTest {
     @Test fun markdownIsFlattenedForTheShade() {
         val md = "## Done\n\nI fixed **two** bugs in `app.py`, see [the PR](https://x.y/1).\n\n```kotlin\nval a = 1\n```\n\n\n\nBye"
-        val out = com.nath.hermesremote.data.Notifier.plain(md)
+        val out = io.github.nideta231.hermesremote.data.Notifier.plain(md)
         assertEquals("Done\n\nI fixed two bugs in app.py, see the PR.\n\n[code]\n\nBye", out)
     }
 }

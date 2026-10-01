@@ -1,4 +1,4 @@
-package com.nath.hermesremote.data
+package io.github.nideta231.hermesremote.data
 
 import org.json.JSONArray
 import org.json.JSONObject

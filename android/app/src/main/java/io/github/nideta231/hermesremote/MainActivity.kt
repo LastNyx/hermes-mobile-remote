@@ -1,4 +1,4 @@
-package com.nath.hermesremote
+package io.github.nideta231.hermesremote
 
 import android.content.Intent
 import android.os.Bundle
@@ -41,13 +41,13 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
-import com.nath.hermesremote.data.Notifier
-import com.nath.hermesremote.ui.AgentScreen
-import com.nath.hermesremote.ui.DesktopScreen
-import com.nath.hermesremote.ui.HermesTheme
-import com.nath.hermesremote.ui.PairScreen
-import com.nath.hermesremote.ui.SessionsScreen
-import com.nath.hermesremote.ui.SystemScreen
+import io.github.nideta231.hermesremote.data.Notifier
+import io.github.nideta231.hermesremote.ui.AgentScreen
+import io.github.nideta231.hermesremote.ui.DesktopScreen
+import io.github.nideta231.hermesremote.ui.HermesTheme
+import io.github.nideta231.hermesremote.ui.PairScreen
+import io.github.nideta231.hermesremote.ui.SessionsScreen
+import io.github.nideta231.hermesremote.ui.SystemScreen
 
 enum class Tab(val label: String, val path: String) {
     AGENT("Agent", "M4,4h16v12H7l-3,3z"),

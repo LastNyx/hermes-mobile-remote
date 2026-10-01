@@ -1,4 +1,4 @@
-package com.nath.hermesremote.data
+package io.github.nideta231.hermesremote.data
 
 import java.net.Inet4Address
 import java.net.InetAddress

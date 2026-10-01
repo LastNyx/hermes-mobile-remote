@@ -1,4 +1,4 @@
-package com.nath.hermesremote.ui
+package io.github.nideta231.hermesremote.ui
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
@@ -57,12 +57,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.nath.hermesremote.ChatState
-import com.nath.hermesremote.Link
-import com.nath.hermesremote.data.ModelCatalog
-import com.nath.hermesremote.data.ModelOption
-import com.nath.hermesremote.data.ChatItem
-import com.nath.hermesremote.data.ToolStatus
+import io.github.nideta231.hermesremote.ChatState
+import io.github.nideta231.hermesremote.Link
+import io.github.nideta231.hermesremote.data.ModelCatalog
+import io.github.nideta231.hermesremote.data.ModelOption
+import io.github.nideta231.hermesremote.data.ChatItem
+import io.github.nideta231.hermesremote.data.ToolStatus
 
 @Composable
 fun AgentScreen(

@@ -1,4 +1,4 @@
-package com.nath.hermesremote.data
+package io.github.nideta231.hermesremote.data
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -8,8 +8,8 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import com.nath.hermesremote.MainActivity
-import com.nath.hermesremote.R
+import io.github.nideta231.hermesremote.MainActivity
+import io.github.nideta231.hermesremote.R
 
 /**
  * The app's notifications. Only events worth interrupting someone for: a run that needs a

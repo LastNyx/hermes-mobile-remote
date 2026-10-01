@@ -14,11 +14,11 @@ val keystoreProps = Properties().apply {
 val hasReleaseKey = keystoreProps.getProperty("storeFile") != null
 
 android {
-    namespace = "com.nath.hermesremote"
+    namespace = "io.github.nideta231.hermesremote"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.nath.hermesremote"
+        applicationId = "io.github.nideta231.hermesremote"
         minSdk = 26
         targetSdk = 35
         versionCode = 10

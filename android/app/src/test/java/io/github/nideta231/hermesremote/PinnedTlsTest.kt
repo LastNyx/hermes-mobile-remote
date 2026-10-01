@@ -1,8 +1,8 @@
-package com.nath.hermesremote
+package io.github.nideta231.hermesremote
 
-import com.nath.hermesremote.data.BridgeClient
-import com.nath.hermesremote.data.CertPin
-import com.nath.hermesremote.data.Pairing
+import io.github.nideta231.hermesremote.data.BridgeClient
+import io.github.nideta231.hermesremote.data.CertPin
+import io.github.nideta231.hermesremote.data.Pairing
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer

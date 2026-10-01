@@ -1,13 +1,13 @@
-package com.nath.hermesremote
+package io.github.nideta231.hermesremote
 
-import com.nath.hermesremote.data.BridgeClient
-import com.nath.hermesremote.data.BridgeException
-import com.nath.hermesremote.data.ChatItem
-import com.nath.hermesremote.data.HistoryMapper
-import com.nath.hermesremote.data.LiveReducer
-import com.nath.hermesremote.data.Pairing
-import com.nath.hermesremote.data.SseEvent
-import com.nath.hermesremote.data.ToolStatus
+import io.github.nideta231.hermesremote.data.BridgeClient
+import io.github.nideta231.hermesremote.data.BridgeException
+import io.github.nideta231.hermesremote.data.ChatItem
+import io.github.nideta231.hermesremote.data.HistoryMapper
+import io.github.nideta231.hermesremote.data.LiveReducer
+import io.github.nideta231.hermesremote.data.Pairing
+import io.github.nideta231.hermesremote.data.SseEvent
+import io.github.nideta231.hermesremote.data.ToolStatus
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking

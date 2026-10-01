@@ -1,4 +1,4 @@
-package com.nath.hermesremote.ui
+package io.github.nideta231.hermesremote.ui
 
 import android.content.ActivityNotFoundException
 import android.content.ClipData
@@ -59,15 +59,15 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.nath.hermesremote.ConnectionState
-import com.nath.hermesremote.SessionsState
-import com.nath.hermesremote.SystemState
-import com.nath.hermesremote.data.DesktopInfo
-import com.nath.hermesremote.data.Pairing
-import com.nath.hermesremote.data.PairingParser
-import com.nath.hermesremote.data.SessionSummary
-import com.nath.hermesremote.data.Transport
-import com.nath.hermesremote.data.TransportMode
+import io.github.nideta231.hermesremote.ConnectionState
+import io.github.nideta231.hermesremote.SessionsState
+import io.github.nideta231.hermesremote.SystemState
+import io.github.nideta231.hermesremote.data.DesktopInfo
+import io.github.nideta231.hermesremote.data.Pairing
+import io.github.nideta231.hermesremote.data.PairingParser
+import io.github.nideta231.hermesremote.data.SessionSummary
+import io.github.nideta231.hermesremote.data.Transport
+import io.github.nideta231.hermesremote.data.TransportMode
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date

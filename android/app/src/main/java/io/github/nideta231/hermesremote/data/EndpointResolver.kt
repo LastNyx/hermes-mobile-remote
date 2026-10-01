@@ -1,4 +1,4 @@
-package com.nath.hermesremote.data
+package io.github.nideta231.hermesremote.data
 
 /**
  * How the app reaches the bridge, and how it chooses when more than one way works.

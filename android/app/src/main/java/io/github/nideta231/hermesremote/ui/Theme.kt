@@ -1,4 +1,4 @@
-package com.nath.hermesremote.ui
+package io.github.nideta231.hermesremote.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
