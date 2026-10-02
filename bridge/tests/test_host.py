@@ -2,8 +2,8 @@
 (and gate CI) on every platform; they prove the parsing and command construction, not that
 Windows itself behaves as documented."""
 import json
-import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -38,7 +38,7 @@ def test_hermes_home_override_is_honoured_everywhere(monkeypatch, tmp_path):
 def test_hermes_bin_falls_back_to_path(monkeypatch, tmp_path):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(base.shutil, "which", lambda name: "/usr/local/bin/hermes")
-    assert str(base.Host().hermes_bin()) == "/usr/local/bin/hermes"
+    assert base.Host().hermes_bin() == Path("/usr/local/bin/hermes")
 
 
 # ------------------------------------------------------------------ windows parsing
