@@ -122,6 +122,24 @@ jobs:
           if ($buf.Length -eq 0) { throw 'bridge.log is empty' }
           if ($buf -contains 0) { throw 'bridge.log is not UTF-8' }
 
+          # 3b. What the second tester did: run the .exe with nothing after it. It must explain itself
+          #     and exit cleanly, not print an argparse error.
+          $exe = "$root\bridge\.venv\Scripts\hermes-remote-bridge.exe"
+          $help = (& $exe 2>&1 | Out-String)
+          if ($LASTEXITCODE -ne 0 -or $help -notmatch 'pair phone' -or $help -notmatch 'pair.cmd') { throw "bare .exe did not explain itself: $help" }
+
+          # 3c. Pairing through the launcher. A runner has no phone, so trust its network to give
+          #     the code an address, then check a real QR picture and manual-entry details come out.
+          & $exe trust | Out-Host
+          $out = (cmd /c "echo.| `"$root\pair.cmd`"" 2>&1 | Out-String)
+          Write-Host ($out -replace 'Token: \S+', 'Token: <hidden>')
+          if ($out -notmatch 'Manual entry' -or $out -notmatch 'hrb_') { throw 'pairing printed no manual-entry details' }
+          if ($out -match 'Pairing failed|Traceback|error:') { throw 'pairing failed' }
+          $png = "$env:LOCALAPPDATA\hermes-remote\state\pairing-qr.png"
+          if (-not (Test-Path $png)) { throw 'no QR picture was written' }
+          if ([System.IO.File]::ReadAllBytes($png)[1..3] -join ',' -ne '80,78,71') { throw 'the QR file is not a PNG' }
+          Remove-Item $png -Force
+
           # 4. Re-running over a running install is safe (an update).
           $out = (cmd /c "echo.| `"$root\install.cmd`" -Unattended" 2>&1 | Out-String)
           if ($out -notmatch 'running; starts at every logon') { throw 'second run did not leave a running bridge' }

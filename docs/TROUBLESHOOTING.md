@@ -14,6 +14,10 @@ WSL2 cannot work; see [PLATFORMS.md](PLATFORMS.md).
 **Windows: "running scripts is disabled on this system".** Run `install.cmd` instead of
 `install.ps1`. It relaxes the policy for that one run only; do not change the policy yourself.
 
+**Windows: a window flashed "the following arguments are required: command".** That is the bridge
+`.exe` double-clicked with nothing after its name. Use `pair.cmd` to pair, or open a prompt and run
+`hermes-remote-bridge doctor`. Current versions show a help screen instead of that error.
+
 **Windows: "uv is required".** Older copies of the installer stopped here. Pull the latest, or run
 `winget install --id=astral-sh.uv`, open a *new* PowerShell window (the old one does not see the
 new PATH), and run the installer again.

@@ -175,11 +175,10 @@ The installer does the same five things as the Linux one:
 5. Asks whether this is a network you trust, then offers the firewall rule (one UAC prompt, private
    ranges and the Private profile only).
 
-Then pair the phone:
-
-```powershell
-.\bridge\.venv\Scripts\hermes-remote-bridge.exe pair phone
-```
+Then pair the phone: double-click **`pair.cmd`** in the folder (the installer also offers to do it at
+the end). It opens the QR code as a picture, which scans reliably; the Windows console draws block
+characters badly. The `.exe` in `bridge\.venv\Scripts` needs a command after its name, so
+double-clicking *that* only shows a help screen.
 
 Check on it any time with `.\bridge\.venv\Scripts\hermes-remote-bridge.exe doctor`. To remove
 it: `install.cmd -Uninstall` (keeps your paired devices and settings in

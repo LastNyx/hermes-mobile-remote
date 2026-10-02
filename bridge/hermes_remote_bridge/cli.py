@@ -212,6 +212,33 @@ def _bridge_urls(cfg: Config) -> list[str]:
     return urls
 
 
+def _show_qr(uri: str, cfg: Config) -> bool:
+    """Show the pairing QR. Returns True when it was opened as an image file.
+
+    A terminal QR is drawn with block characters. That works in a Linux terminal, but a Windows
+    console may not have the glyphs (or the code page) and the result is unscannable or an
+    exception, so there it opens as a picture; it is also the fallback if printing fails.
+    """
+    import segno
+
+    qr = segno.make(uri, error="m")
+    if not host().qr_as_image():
+        try:
+            qr.terminal(compact=True)
+            return False
+        except UnicodeEncodeError:
+            pass
+    path = cfg.audit_log.parent / "pairing-qr.png"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as fh:
+        qr.save(fh, kind="png", scale=8, border=3, dark="#000", light="#fff")
+    if host().open_file(path):
+        return True
+    print(f"Open this picture and scan it: {path}  (delete it afterwards)")
+    return False
+
+
 def cmd_pair(cfg: Config, args: argparse.Namespace) -> None:
     store = DeviceStore(cfg.devices_file)
     device, token = store.pair(args.name)
@@ -239,8 +266,10 @@ def cmd_pair(cfg: Config, args: argparse.Namespace) -> None:
         return
     print(f"Paired device {device.name!r} (id {device.id}).")
     print("Scan this QR code in the Hermes Remote app. It is shown ONCE; the token is not stored.\n")
-    segno.make(uri, error="m").terminal(compact=True)
+    shown_as_image = _show_qr(uri, cfg)
     print(f"\nManual entry -> URL: {urls[0]}\n                 Token: {token}\n")
+    if shown_as_image:
+        print("The QR code was opened as a picture. Close it and delete it once the app has paired.")
     print(f"Revoke any time: hermes-remote-bridge revoke {device.name!r}")
 
 
@@ -315,6 +344,25 @@ def cmd_firewall(cfg: Config, args: argparse.Namespace) -> None:
     print("Done." if firewall.open_port(s.kind, cfg.port) else "Not applied (cancelled or failed).")
 
 
+def _no_command_help(parser: argparse.ArgumentParser) -> None:
+    """Running the program with nothing after it: say what to type, and don't vanish.
+
+    On Windows people double-click the .exe; without this the window shows an argparse error and
+    closes before it can be read.
+    """
+    print("Hermes Mobile Remote bridge\n")
+    print("This program needs a command after its name. The ones you want most:\n")
+    print("  hermes-remote-bridge pair phone     show a QR code to connect your phone")
+    print("  hermes-remote-bridge doctor         find out why the phone cannot connect")
+    print("  hermes-remote-bridge devices        list paired phones")
+    print("  hermes-remote-bridge trust          trust the Wi-Fi network you are on now")
+    if host().name == "windows":
+        print("\nEasiest: double-click  pair.cmd  in the project folder.")
+    print("\nAll commands: hermes-remote-bridge --help")
+    if host().launched_by_double_click():
+        input("\nPress Enter to close this window...")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="hermes-remote-bridge")
     parser.add_argument("--config", type=Path, help="config.toml (default ~/.config/hermes-remote/config.toml)")
@@ -335,6 +383,9 @@ def main(argv: list[str] | None = None) -> None:
     f = sub.add_parser("firewall", help="Allow the bridge port from the local network (asks first)")
     f.add_argument("--yes", action="store_true", help="Don't ask for confirmation")
     f.add_argument("--if-needed", action="store_true", help=argparse.SUPPRESS)
+    if not (argv if argv is not None else sys.argv[1:]):
+        _no_command_help(parser)
+        return
     args = parser.parse_args(argv)
     cfg = Config.load(args.config)
     handler = {"serve": cmd_serve, "pair": cmd_pair, "revoke": cmd_revoke, "devices": cmd_devices,
