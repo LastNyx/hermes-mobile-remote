@@ -14,12 +14,12 @@ Hermes API key, and only lets in phones you paired.
 
 ## Features
 
-- **Chat and sessions:** stream replies; browse, rename, fork and delete sessions. Drafts survive
-  app restarts.
+- **Chat and sessions:** stream replies; swipe in the session drawer from the left edge to search,
+  pin, rename and delete chats (long-press a chat). Drafts survive app restarts.
 - **Pinned sessions:** pins are shared with the Hermes desktop app.
 - **Follow your PC:** open a session that's running on the desktop, CLI or a messaging platform,
-  and the app tails it ("Live on your PC") as new messages land.
-- **Approvals:** approve or deny tool calls from the app. System tab → Command approvals switches
+  and the app tails it ("Running on another device") as new messages land.
+- **Approvals:** a panel slides up above the composer when a command needs approval. Settings → Command approvals switches
   Hermes' global `approvals.mode` (Manual, Smart, Off).
 - **Model picker:** choose, per message, any model your configured providers can actually serve.
 - **Reasoning effort:** Off, Low, Medium, High, Extra high or Max per message, or Hermes' default.
@@ -27,13 +27,13 @@ Hermes API key, and only lets in phones you paired.
   `/compress`, `/status`, `/tools`, `/memory`, `/plan` and every skill run on the PC exactly as on
   the desktop. `/model`, `/reasoning`, `/new` and `/stop` map onto the app's own controls.
 - **Auto-update:** the app checks GitHub Releases at startup and installs new versions in place
-  (System tab → App version).
+  (Settings → App version).
 - **Notifications:** get notified when a run you started finishes or needs approval while the
   app is in the background.
 - **Local network first:** on Wi-Fi you trust (home, office), the phone connects directly. Tailscale
   is optional and only used when you're away.
 - **Tablet layout:** session list beside the chat.
-- **Desktop tab (optional):** opens your PC's desktop in [aFreeRDP](https://f-droid.org/packages/com.freerdp.afreerdp/)
+- **Remote desktop (optional):** opens your PC's desktop in [aFreeRDP](https://f-droid.org/packages/com.freerdp.afreerdp/)
   with the connection pre-filled. It's built for KDE's KRdp, which Microsoft's Android RD client
   doesn't work with.
 
@@ -88,7 +88,7 @@ To remove the service: `./install.sh --uninstall`. Paired devices and settings s
 - **How networks are recognised:** by the NetworkManager connection profile *and* the router's MAC
   address, so a hotspot that copies your Wi-Fi name isn't trusted.
 - **Switching is automatic:** the app re-picks the best path when the phone's network changes,
-  every 20 s while open, and when you return to it. System tab → Connection shows the current
+  every 20 s while open, and when you return to it. Settings → Connection shows the current
   path and has manual switch buttons.
 - **Finding the PC:** if its IP changes, the app finds it again over mDNS without re-pairing. On
   the PC side, network changes are picked up within about 5 s.
