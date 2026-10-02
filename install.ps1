@@ -166,7 +166,7 @@ if ($up) {
     Info 'running; starts at every logon'
 } else {
     Write-Host '  The bridge did not start. Last lines of its log:' -ForegroundColor Yellow
-    if (Test-Path $log) { Get-Content $log -Tail 15 | ForEach-Object { Write-Host "    $_" } }
+    if (Test-Path $log) { Get-Content $log -Tail 40 | ForEach-Object { Write-Host "    $_" } }
     else { Write-Host '    (no log file was written; the task itself may not have started)' }
     Die "Fix the problem above, then run the installer again. It is safe to re-run."
 }

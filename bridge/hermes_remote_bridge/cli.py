@@ -125,6 +125,11 @@ def cmd_serve(cfg: Config, _: argparse.Namespace) -> None:
         raise SystemExit(75)
 
 
+def _listener_closed(sockets) -> bool:
+    """True when any bound listening socket has been closed (its descriptor is gone)."""
+    return any(sock.fileno() == -1 for group in sockets for sock in group)
+
+
 async def _serve_until_network_changes(servers, sockets, cfg: Config, trust: TrustStore,
                                        bound: tuple[frozenset[str], frozenset[str]]) -> bool:
     """Serve until Wi-Fi/DHCP/Tailscale/trust changes what we should listen on.
@@ -136,8 +141,21 @@ async def _serve_until_network_changes(servers, sockets, cfg: Config, trust: Tru
 
     async def watch():
         nonlocal changed
+        tick = 0
         while not any(s.should_exit for s in servers):
-            await asyncio.sleep(5)
+            await asyncio.sleep(1)
+            tick += 1
+            if _listener_closed(sockets):
+                # asyncio on Windows closes a listening socket when one accept() fails (a client
+                # resetting mid-connect is enough). The process would stay up, deaf. Restart.
+                logging.getLogger("hermes_remote_bridge").error(
+                    "a listening socket was closed underneath us; restarting")
+                changed = True
+                for s in servers:
+                    s.should_exit = True
+                return
+            if tick % 5:
+                continue
             now = await asyncio.to_thread(_desired, cfg, trust)
             if now != bound and (now[0] or now[1]):
                 logging.getLogger("hermes_remote_bridge").info(
