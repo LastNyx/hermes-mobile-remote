@@ -29,7 +29,7 @@ cd hermes-mobile-remote
 ```
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1    # Windows 10/11 (experimental)
+install.cmd           # Windows 10/11 (experimental); or double-click it
 ```
 
 macOS is not supported yet. See [docs/PLATFORMS.md](docs/PLATFORMS.md).
