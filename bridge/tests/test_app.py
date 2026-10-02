@@ -105,7 +105,8 @@ def test_device_file_stores_only_hash(env):
     cfg, _, token, _, _ = env
     text = cfg.devices_file.read_text()
     assert token not in text
-    assert oct(os.stat(cfg.devices_file).st_mode & 0o777) == "0o600"
+    if os.name == "posix":  # Windows has no mode bits; the user-profile ACL applies
+        assert oct(os.stat(cfg.devices_file).st_mode & 0o777) == "0o600"
 
 
 def test_body_limit_and_validation(env):
@@ -376,7 +377,8 @@ def test_untrusted_network_serves_no_lan(tmp_path, monkeypatch):
     trust.trust(cafe)
     assert network.serving_lan_ips(True, trust) == ["10.0.0.7"]
     assert network.serving_lan_ips(False, trust) == []  # lan off overrides trust
-    assert oct((tmp_path / "n.json").stat().st_mode & 0o777) == "0o600"
+    if os.name == "posix":
+        assert oct((tmp_path / "n.json").stat().st_mode & 0o777) == "0o600"
     trust.untrust("cafe0001")
     assert network.serving_lan_ips(True, trust) == []
 
