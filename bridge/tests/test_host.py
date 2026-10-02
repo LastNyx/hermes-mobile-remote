@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from hermes_remote_bridge import firewall, network, tailnet
+from hermes_remote_bridge.config import Config
 from hermes_remote_bridge.host import base, windows
 from hermes_remote_bridge.host.windows import WindowsHost, normalise_mac, parse_default_routes
 
@@ -229,3 +230,30 @@ def test_terminal_qr_survives_a_console_that_cannot_encode_blocks(monkeypatch, t
     cfg = Config(audit_log=tmp_path / "audit.log")
     cli._show_qr("hermesremote://pair?v=2", cfg)  # must not raise UnicodeEncodeError
     assert (tmp_path / "pairing-qr.png").exists()
+
+
+def test_pairing_warns_when_the_firewall_blocks_the_port(monkeypatch):
+    from hermes_remote_bridge import cli, firewall
+    monkeypatch.setattr(cli, "serving_lan_ips", lambda enabled, trust: ["192.168.1.10"])
+    monkeypatch.setattr(cli, "sync_tailscale_ips", lambda: ([], None))
+    monkeypatch.setattr(firewall, "state", lambda port: firewall.FirewallState("windows", True, False))
+    warnings = cli._pairing_warnings(Config(), ["https://192.168.1.10:8650"])
+    assert any("blocking" in w and "hermes-remote-bridge firewall" in w for w in warnings)
+    assert any("SAME Wi-Fi" in w for w in warnings)
+
+
+def test_pairing_warns_when_only_tailscale_is_available(monkeypatch):
+    from hermes_remote_bridge import cli, firewall
+    monkeypatch.setattr(cli, "serving_lan_ips", lambda enabled, trust: [])
+    monkeypatch.setattr(cli, "sync_tailscale_ips", lambda: (["100.64.0.10"], None))
+    monkeypatch.setattr(firewall, "state", lambda port: firewall.FirewallState("windows", True, True))
+    warnings = cli._pairing_warnings(Config(lan=True), ["http://100.64.0.10:8650"])
+    assert any("Tailscale" in w for w in warnings)
+
+
+def test_pairing_is_quiet_when_nothing_is_wrong(monkeypatch):
+    from hermes_remote_bridge import cli, firewall
+    monkeypatch.setattr(cli, "serving_lan_ips", lambda enabled, trust: ["192.168.1.10"])
+    monkeypatch.setattr(cli, "sync_tailscale_ips", lambda: ([], None))
+    monkeypatch.setattr(firewall, "state", lambda port: firewall.FirewallState("windows", True, True))
+    assert cli._pairing_warnings(Config(), ["https://192.168.1.10:8650"]) == []
