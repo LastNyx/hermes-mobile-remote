@@ -188,3 +188,14 @@ def test_doctor_prints_on_a_legacy_windows_console(monkeypatch, capsys):
     assert all(m.isascii() for m in marks.values())
     for m in marks.values():
         print(m)  # would raise UnicodeEncodeError with the fancy marks
+
+
+def test_a_closed_listening_socket_is_detected():
+    """asyncio on Windows closes the listener after one failed accept; the bridge must notice."""
+    import socket
+    from hermes_remote_bridge import cli
+    a, b = socket.socket(), socket.socket()
+    assert not cli._listener_closed([[a], [b]])
+    b.close()
+    assert cli._listener_closed([[a], [b]])
+    a.close()
