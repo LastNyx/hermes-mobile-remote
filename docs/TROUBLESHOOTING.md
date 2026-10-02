@@ -11,8 +11,8 @@ instead of `journalctl`, and `hermes-remote-bridge firewall` opens Windows Defen
 (one UAC prompt). There is no "trust this network?" popup: run `hermes-remote-bridge trust`.
 WSL2 cannot work; see [PLATFORMS.md](PLATFORMS.md).
 
-**Windows: "running scripts is disabled on this system".** Run the installer as
-`powershell -ExecutionPolicy Bypass -File .\install.ps1`. That affects only that run.
+**Windows: "running scripts is disabled on this system".** Run `install.cmd` instead of
+`install.ps1`. It relaxes the policy for that one run only; do not change the policy yourself.
 
 **Windows: "uv is required".** Older copies of the installer stopped here. Pull the latest, or run
 `winget install --id=astral-sh.uv`, open a *new* PowerShell window (the old one does not see the

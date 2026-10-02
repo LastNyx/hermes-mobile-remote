@@ -10,7 +10,10 @@ while ($true) {
     if ((Test-Path $LogFile) -and (Get-Item $LogFile).Length -gt 2MB) {
         Move-Item -Force $LogFile "$LogFile.1"
     }
-    & $Bin serve *>> $LogFile
-    if ($LASTEXITCODE -ne 75) { exit $LASTEXITCODE }
+    # Windows PowerShell 5.1's `*>>` writes UTF-16, which most tools show as garbage. Stringify each
+    # line and append it as UTF-8 instead.
+    & $Bin serve 2>&1 | ForEach-Object { "$_" } | Out-File -FilePath $LogFile -Append -Encoding utf8
+    $code = $LASTEXITCODE
+    if ($code -ne 75) { exit $code }
     Start-Sleep -Seconds 2
 }

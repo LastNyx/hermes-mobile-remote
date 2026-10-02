@@ -145,22 +145,24 @@ The repository ships a demo stack with a synthetic backend — no keys, no model
 Experimental: see [PLATFORMS.md](PLATFORMS.md#what-is-verified-on-windows) for exactly what is and
 is not verified. Use native Windows, not WSL2.
 
-In PowerShell, from a normal (non-admin) window:
+From a normal (non-admin) Command Prompt or PowerShell window, or by double-clicking `install.cmd`
+in the folder:
 
 ```powershell
 git clone https://github.com/nideta231/hermes-mobile-remote.git
 cd hermes-mobile-remote
-powershell -ExecutionPolicy Bypass -File .\install.ps1
+install.cmd
 ```
 
-`-ExecutionPolicy Bypass` applies to that one run only. A stock Windows blocks unsigned scripts
-("running scripts is disabled on this system"), and this avoids changing the policy for the whole
-account. If you downloaded a ZIP instead of cloning, Windows also marks the files as blocked; run
-`Get-ChildItem -Recurse | Unblock-File` first.
+Use `install.cmd`, not `install.ps1` directly. A stock Windows refuses unsigned scripts ("running
+scripts is disabled on this system"), and `install.cmd` relaxes that for this one run only, so you
+never touch the account-wide policy. If you downloaded a ZIP instead of cloning, the installer also
+clears the "downloaded from the internet" mark on its scripts. Do not extract the ZIP and then edit
+the execution policy by hand.
 
 If `uv` (the Python package manager the bridge is installed with) is missing, the installer asks
 and installs it for you, with `winget` or the official installer, no admin needed. Pass `-InstallUv`
-to skip the question. It then finds `uv` in the same window, so you do not have to reopen
+(`install.cmd -InstallUv`) to skip the question. It then finds `uv` in the same window, so you do not have to reopen
 PowerShell.
 
 The installer does the same five things as the Linux one:
@@ -180,5 +182,5 @@ Then pair the phone:
 ```
 
 Check on it any time with `.\bridge\.venv\Scripts\hermes-remote-bridge.exe doctor`. To remove
-it: `.\install.ps1 -Uninstall` (keeps your paired devices and settings in
+it: `install.cmd -Uninstall` (keeps your paired devices and settings in
 `%LOCALAPPDATA%\hermes-remote`).

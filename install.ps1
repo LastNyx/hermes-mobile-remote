@@ -73,6 +73,11 @@ if ($Uninstall) {
     exit 0
 }
 
+# A ZIP downloaded in a browser marks every file "from the internet", and PowerShell then refuses
+# the helper script the Scheduled Task runs. Clearing the mark is harmless on a git clone.
+Get-ChildItem -Path $Repo -Recurse -Include *.ps1 -ErrorAction SilentlyContinue |
+    Unblock-File -ErrorAction SilentlyContinue
+
 Bold '1/5 Checking requirements'
 if ($PSVersionTable.PSVersion.Major -lt 5) { Die 'PowerShell 5.1 or newer is required.' }
 Update-SessionPath
@@ -146,7 +151,25 @@ Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings `
     -Principal $principal -Force | Out-Null
 Start-ScheduledTask -TaskName $TaskName
-Info "running; starts at every logon (log: $log)"
+Info "starting (log: $log)"
+
+# Don't claim success until the bridge answers. 401 is the right answer: it means the bridge is up
+# and refusing an unauthenticated request. A bridge that crashes on start would otherwise sit in the
+# task's restart loop while this installer printed "running".
+$up = $false
+for ($i = 0; $i -lt 30 -and -not $up; $i++) {
+    Start-Sleep -Seconds 1
+    try { $null = Invoke-WebRequest -Uri 'http://127.0.0.1:8650/v1/me' -UseBasicParsing -TimeoutSec 2 }
+    catch { if ($_.Exception.Response) { $up = $true } }
+}
+if ($up) {
+    Info 'running; starts at every logon'
+} else {
+    Write-Host '  The bridge did not start. Last lines of its log:' -ForegroundColor Yellow
+    if (Test-Path $log) { Get-Content $log -Tail 15 | ForEach-Object { Write-Host "    $_" } }
+    else { Write-Host '    (no log file was written; the task itself may not have started)' }
+    Die "Fix the problem above, then run the installer again. It is safe to re-run."
+}
 
 Bold '5/5 Network'
 if (Ask 'Is this your home or office network (let the phone connect over this Wi-Fi without Tailscale)?') {
