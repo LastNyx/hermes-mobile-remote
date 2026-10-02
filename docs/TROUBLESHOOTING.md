@@ -5,6 +5,12 @@ worth checking and explains what is wrong. Everything below is a symptom it may 
 
 ## The phone cannot connect at all
 
+On **Windows**, the same checks apply with different commands: `Get-ScheduledTask -TaskName
+'Hermes Mobile Remote'` instead of `systemctl`, `%LOCALAPPDATA%\hermes-remote\state\bridge.log`
+instead of `journalctl`, and `hermes-remote-bridge firewall` opens Windows Defender Firewall
+(one UAC prompt). There is no "trust this network?" popup: run `hermes-remote-bridge trust`.
+WSL2 cannot work; see [PLATFORMS.md](PLATFORMS.md).
+
 **`forbidden_network` / "The PC doesn't serve this network."**
 
 The bridge only serves loopback, Tailscale, and a Wi-Fi network you marked trusted. On the PC:
