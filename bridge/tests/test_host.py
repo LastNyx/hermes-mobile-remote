@@ -176,3 +176,15 @@ def test_tls_certificate_works_for_an_https_server(tmp_path):
     cert, key = ensure_identity(tmp_path)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(cert, key)  # raises if the pair is unusable
+
+
+def test_doctor_prints_on_a_legacy_windows_console(monkeypatch, capsys):
+    """cp1252 cannot encode the tick/cross; doctor must fall back to ASCII, not crash."""
+    import io
+    from hermes_remote_bridge import doctor
+    legacy = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+    monkeypatch.setattr(doctor.sys, "stdout", legacy)
+    marks = doctor._marks()
+    assert all(m.isascii() for m in marks.values())
+    for m in marks.values():
+        print(m)  # would raise UnicodeEncodeError with the fancy marks
