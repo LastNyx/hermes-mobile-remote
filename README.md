@@ -20,13 +20,19 @@ MIT licensed. See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull reque
 
 ## Install
 
-On the PC (Linux, systemd):
+On the PC:
 
 ```bash
 git clone https://github.com/nideta231/hermes-mobile-remote.git
 cd hermes-mobile-remote
-./install.sh
+./install.sh          # Linux (systemd)
 ```
+
+```powershell
+.\install.ps1         # Windows 10/11 (experimental)
+```
+
+macOS is not supported yet. See [docs/PLATFORMS.md](docs/PLATFORMS.md).
 
 On the phone: install the APK from [Releases](https://github.com/nideta231/hermes-mobile-remote/releases/latest),
 then run `bridge/.venv/bin/hermes-remote-bridge pair phone` on the PC and scan the QR code in the app.
@@ -53,6 +59,7 @@ Each document has one job.
 | Document | What it covers |
 |---|---|
 | [docs/INSTALL.md](docs/INSTALL.md) | Installing the bridge, pairing a phone, removing it |
+| [docs/PLATFORMS.md](docs/PLATFORMS.md) | Linux, Windows, macOS: what is supported, verified and missing |
 | [docs/FEATURES.md](docs/FEATURES.md) | Every feature, how it behaves, and its limits |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the app, bridge and Hermes fit together |
 | [docs/SECURITY.md](docs/SECURITY.md) | Threat model and the guarantees the bridge makes |
@@ -68,7 +75,7 @@ Each document has one job.
 
 | PC | Phone |
 |---|---|
-| Linux with systemd (developed on KDE Plasma, Arch-based) | Android 8.0+ |
+| Linux with systemd (Arch-based, KDE), or Windows 10/11 (experimental) | Android 8.0+ |
 | [Hermes Agent](https://hermes-agent.nousresearch.com) installed | |
 | [uv](https://docs.astral.sh/uv/) | |
 | Optional: NetworkManager, Avahi, Tailscale | Optional: Tailscale |
