@@ -175,7 +175,11 @@ Bold '5/5 Network'
 if (Ask 'Is this your home or office network (let the phone connect over this Wi-Fi without Tailscale)?') {
     try { & $Bin trust } catch { Info "Couldn't trust it yet: $_" }
 }
-try { & $Bin firewall --if-needed } catch { }
+if (-not $Unattended) {
+    try { & $Bin firewall --if-needed } catch { }
+} else {
+    Info 'Skipped the firewall rule (-Unattended). Add it later with: hermes-remote-bridge firewall'
+}
 
 Write-Host ''
 try { & $Bin doctor } catch { }

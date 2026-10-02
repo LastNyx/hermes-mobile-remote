@@ -106,6 +106,8 @@ jobs:
           $out = (cmd /c "echo.| `"$root\install.cmd`" -Unattended -InstallUv" 2>&1 | Out-String)
           Write-Host $out
           if ($out -match 'did not start|Error:') { throw 'installer reported a failure' }
+          if ($out -match 'Apply now') { throw '-Unattended must not touch the firewall' }
+          if (Get-NetFirewallRule -DisplayName 'Hermes Mobile Remote' -ErrorAction SilentlyContinue) { throw 'a firewall rule was created unattended' }
           if ($out -notmatch 'running; starts at every logon') { throw 'installer did not confirm a running bridge' }
 
           $task = Get-ScheduledTask -TaskName 'Hermes Mobile Remote'
@@ -114,7 +116,11 @@ jobs:
           $log = "$env:LOCALAPPDATA\hermes-remote\state\bridge.log"
           Get-Content $log -ErrorAction SilentlyContinue | Select-Object -First 8
           # The log must be readable text, not UTF-16 (which has NUL bytes between letters).
-          if ([System.IO.File]::ReadAllBytes($log) -contains 0) { throw 'bridge.log is not UTF-8' }
+          # (the bridge is still writing to it, so open it with sharing allowed)
+          $fs = [System.IO.File]::Open($log, 'Open', 'Read', 'ReadWrite')
+          $buf = New-Object byte[] ([int][Math]::Min($fs.Length, 4096)); [void]$fs.Read($buf, 0, $buf.Length); $fs.Close()
+          if ($buf.Length -eq 0) { throw 'bridge.log is empty' }
+          if ($buf -contains 0) { throw 'bridge.log is not UTF-8' }
 
           # 4. Re-running over a running install is safe (an update).
           $out = (cmd /c "echo.| `"$root\install.cmd`" -Unattended" 2>&1 | Out-String)
