@@ -161,6 +161,29 @@ CATALOG = {
 }
 
 
+def test_current_provider_survives_every_model_being_unavailable(tmp_path):
+    """Hermes' own provider can report all its models unavailable while a private alias runs.
+
+    The app must still be able to see (and keep using) the provider it is actually on.
+    """
+    raw = {"model": "stealth/space-bunny-alpha", "provider": "nous",
+           "providers": [{"slug": "nous", "name": "Nous", "is_current": True, "authenticated": True,
+                          "source": "hermes", "models": ["a/b", "c/d"],
+                          "unavailable_models": ["a/b", "c/d"], "featured_models": ["a/b"]}]}
+    cfg = Config(devices_file=tmp_path / "d.json", audit_log=tmp_path / "a.log")
+    store = DeviceStore(cfg.devices_file)
+    _, token = store.pair("phone")
+    app = create_app(cfg, hermes=FakeHermes({("GET", "/api/model/options"): raw}),
+                     tailnet=FakeTailnet({"100.64.0.10": "me@example.com"}), devices=store,
+                     owner_login="me@example.com")
+    body = client(app, "100.64.0.10").get("/v1/models",
+                                          headers={"Authorization": f"Bearer {token}"}).json()
+    nous = [p for p in body["providers"] if p["slug"] == "nous"][0]
+    assert body["current"] == {"model": "stealth/space-bunny-alpha", "provider": "nous"}
+    assert nous["current"] and nous["models"], "the provider in use must still be offered"
+    assert nous["featured"][0] == "stealth/space-bunny-alpha"
+
+
 def test_model_catalog_filters_unavailable_and_unauthenticated(tmp_path):
     cfg = Config(devices_file=tmp_path / "d.json", audit_log=tmp_path / "a.log")
     store = DeviceStore(cfg.devices_file)
