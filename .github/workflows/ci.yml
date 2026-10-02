@@ -91,7 +91,10 @@ jobs:
 
           # 1. Plain `powershell -File` is what failed for the first tester: prove it still would
           #    without the launcher, so this test is actually testing something.
+          # (stderr is the expected output here, so don't let 'Stop' turn it into a crash)
+          $ErrorActionPreference = 'Continue'
           $plain = (& powershell -NoProfile -File "$root\install.ps1" -Unattended 2>&1 | Out-String)
+          $ErrorActionPreference = 'Stop'
           if ($plain -notmatch 'running scripts is disabled|cannot be loaded') { throw "expected the policy block, got: $plain" }
 
           # 2. The launcher gets past it. Answers are piped in so `pause` cannot hang.
