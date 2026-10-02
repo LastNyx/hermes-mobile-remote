@@ -260,3 +260,32 @@ def test_pairing_only_nags_about_the_wifi_when_nothing_is_wrong(monkeypatch):
     warnings = cli._pairing_warnings(Config(), ["https://192.168.1.10:8650"])
     assert not any("blocking" in w or "Tailscale" in w for w in warnings)
     assert len(warnings) == 1 and "SAME Wi-Fi" in warnings[0]
+
+
+def test_reachability_check_accepts_the_bridges_own_certificate(tmp_path, capsys):
+    """The LAN listener uses a self-signed cert; treating that as 'unreachable' would be wrong."""
+    import ssl
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    from hermes_remote_bridge import cli
+    from hermes_remote_bridge.tls import ensure_identity
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_error(401)  # what an unauthenticated request really gets
+        def log_message(self, *a):
+            pass
+
+    cert, key = ensure_identity(tmp_path / "tls")
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(cert, key)
+    server.socket = ctx.wrap_socket(server.socket, server_side=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        cfg = Config(tls_dir=tmp_path / "tls", audit_log=tmp_path / "audit.log")
+        cli._confirm_reachable(f"https://127.0.0.1:{server.server_port}", cfg)  # cert names no IP
+    finally:
+        server.shutdown()
+    assert "Reachable" in capsys.readouterr().out
