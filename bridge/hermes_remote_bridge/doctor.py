@@ -1,13 +1,12 @@
 """`hermes-remote-bridge doctor`: explain why the phone can't connect, one check at a time."""
 from __future__ import annotations
 
-import shutil
-import subprocess
 import urllib.request
 
 from . import firewall
 from .config import Config, read_hermes_api_key
 from .devices import DeviceStore
+from .host import host
 from .network import TrustStore, current_network, serving_lan_ips
 from .tailnet import sync_tailscale_ips
 
@@ -31,13 +30,14 @@ def _check_hermes(cfg: Config) -> tuple[str, str]:
 
 
 def _check_service() -> tuple[str, str]:
-    if not shutil.which("systemctl"):
-        return WARN, "systemd not found; run `hermes-remote-bridge serve` yourself"
-    r = subprocess.run(["systemctl", "--user", "is-active", "hermes-remote-bridge"],
-                       capture_output=True, text=True)
-    state = r.stdout.strip() or "unknown"
+    state = host().service_state("hermes-remote-bridge")
+    if state == "unknown":
+        return WARN, "No service manager found; run `hermes-remote-bridge serve` yourself"
     if state == "active":
         return OK, "Bridge service is running"
+    if host().name == "windows":
+        return FAIL, (f"Bridge task is {state}. Start it: Start-ScheduledTask -TaskName 'Hermes Mobile Remote' "
+                      "(logs: %LOCALAPPDATA%\\hermes-remote\\state\\bridge.log)")
     return FAIL, (f"Bridge service is {state}. Start it: systemctl --user enable --now hermes-remote-bridge "
                   "(logs: journalctl --user -u hermes-remote-bridge)")
 
@@ -48,7 +48,7 @@ def _check_network(cfg: Config) -> tuple[str, str]:
     trust = TrustStore(cfg.trust_file)
     net = current_network()
     if net is None:
-        return WARN, "Can't identify the current network (NetworkManager not found or no default route)"
+        return WARN, "Can't identify the current network (no private default route, or the router has not been seen yet)"
     if not trust.is_trusted(net):
         return WARN, (f"Network '{net.name}' is not trusted, so the phone can't connect over Wi-Fi here. "
                       "If this is your home or office: hermes-remote-bridge trust")

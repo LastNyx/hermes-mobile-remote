@@ -7,9 +7,7 @@ import ipaddress
 import json
 import logging
 import os
-import shutil
 import socket
-import subprocess
 import sys
 import threading
 import time
@@ -19,6 +17,7 @@ from pathlib import Path
 
 from .config import Config
 from .devices import DeviceStore
+from .host import host
 from .network import TrustStore, current_network, serving_lan_ips
 from .tailnet import sync_tailscale_ips
 from .tls import cert_pin, ensure_identity
@@ -110,6 +109,8 @@ def cmd_serve(cfg: Config, _: argparse.Namespace) -> None:
     log.info("listening on %s%s", ", ".join(f"http://{h}:{cfg.port}" for h in plain),
              "".join(f", https://{h}:{cfg.port}" for h in lan))
     mdns = _advertise(cfg, pin, sorted(lan)) if lan and cfg.mdns else None
+    if lan and cfg.mdns and mdns is None:
+        log.warning("mDNS unavailable on this PC; the app can't follow an IP change by itself")
     if cfg.lan and net and not lan:
         _ask_to_trust(trust, net)
     try:
@@ -119,7 +120,8 @@ def cmd_serve(cfg: Config, _: argparse.Namespace) -> None:
         if mdns:
             mdns.terminate()
     if changed:
-        # Non-zero so systemd (Restart=always) brings us back up on the new addresses.
+        # Non-zero so the service manager (systemd Restart=always, a Scheduled Task's restart
+        # policy) brings us back up on the new addresses.
         raise SystemExit(75)
 
 
@@ -154,42 +156,25 @@ async def _serve_until_network_changes(servers, sockets, cfg: Config, trust: Tru
 
 
 def _advertise(cfg: Config, pin: str | None, lan_ips: list[str]):
-    """Announce the bridge over mDNS (Avahi) so the app finds it when the PC's IP changes.
+    """Announce the bridge over mDNS so the app finds it when the PC's IP changes.
 
     The TXT record carries only a short prefix of the certificate pin, so the app can tell its
-    own bridge from another one; the full pin is still checked on the TLS connection.
-
-    Avahi announces on every interface, Docker bridges included, so a resolver can hand the
-    phone an unreachable 172.17.x address. ``ip=`` lists the addresses we actually serve.
+    own bridge from another one; the full pin is still checked on the TLS connection. ``ip=``
+    lists the addresses we actually serve, so a resolver never hands the phone a Docker bridge.
     """
-    if not shutil.which("avahi-publish-service"):
-        logging.getLogger("hermes_remote_bridge").warning("avahi-publish-service missing; no mDNS")
-        return None
-    return subprocess.Popen(
-        ["avahi-publish-service", f"Hermes Remote ({socket.gethostname()})", "_hermesremote._tcp",
-         str(cfg.port), f"pin={(pin or '')[:12]}", f"ip={','.join(lan_ips)}", "v=2"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return host().advertise_mdns(cfg.port, pin, lan_ips)
 
 
 def _ask_to_trust(trust: TrustStore, net) -> None:
-    """Desktop notification: offer to trust the network the PC just joined (once per network)."""
-    if net.id in trust.declined() or not shutil.which("notify-send"):
+    """Desktop prompt: offer to trust the network the PC just joined (once per network)."""
+    if net.id in trust.declined():
         return
 
     def ask():
-        try:
-            out = subprocess.run(
-                ["notify-send", "--app-name=Hermes Remote", "--icon=network-wireless", "--wait",
-                 "--action=trust=Trust this network", "--action=no=Not now",
-                 f"New network: {net.name}",
-                 "Let your phone connect to Hermes over this Wi-Fi without Tailscale? "
-                 "Only for networks you control, like home or office."],
-                capture_output=True, text=True, timeout=600).stdout.strip()
-        except (OSError, subprocess.SubprocessError):
-            return
-        if out == "trust":
+        answer = host().prompt_trust(net.name)
+        if answer == "trust":
             trust.trust(net)  # the watcher sees it and restarts with the LAN listener
-        elif out == "no":
+        elif answer == "no":
             trust.decline(net)
 
     threading.Thread(target=ask, daemon=True).start()
@@ -298,13 +283,14 @@ def cmd_firewall(cfg: Config, args: argparse.Namespace) -> None:
         return
     if args.if_needed and s.port_open is None and not sys.stdin.isatty():
         return
-    print(f"{s.kind} is active. To let your phone reach the bridge over Wi-Fi, these rules will be added")
+    print(f"{s.kind} is active. To let your phone reach the bridge over Wi-Fi, this will be added")
     print("(private networks only; the bridge only listens on Wi-Fi you trusted):")
     for c in firewall.open_commands(s.kind, cfg.port):
         print("  " + " ".join(c))
     if not args.yes:
         try:
-            if input("Apply now? You'll be asked for your password. [Y/n] ").strip().lower() not in ("", "y", "yes"):
+            if input("Apply now? You'll be asked for your password"
+                         f"{' (a UAC prompt)' if s.kind == 'windows' else ''}. [Y/n] ").strip().lower() not in ("", "y", "yes"):
                 return
         except EOFError:
             return

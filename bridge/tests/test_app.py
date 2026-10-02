@@ -385,7 +385,7 @@ def test_same_ssid_behind_a_different_router_is_a_different_network(monkeypatch)
     from hermes_remote_bridge import network
     monkeypatch.setattr(network, "_default_route", lambda: ("wlan0", "192.168.1.1"))
     monkeypatch.setattr(network, "_interface_ips", lambda: {"wlan0": ["192.168.1.10"]})
-    monkeypatch.setattr(network, "_nm_connection", lambda iface: ("uuid-home", "HomeWiFi"))
+    monkeypatch.setattr(network, "_network_profile", lambda iface: ("uuid-home", "HomeWiFi"))
     monkeypatch.setattr(network, "_gateway_mac", lambda gw: "aa:aa:aa:aa:aa:aa")
     home = network.current_network()
     monkeypatch.setattr(network, "_gateway_mac", lambda gw: "bb:bb:bb:bb:bb:bb")
@@ -399,5 +399,7 @@ def test_tls_identity_is_created_once_with_private_key(tmp_path):
     from hermes_remote_bridge.tls import cert_pin, ensure_identity
     cert, key = ensure_identity(tmp_path / "tls")
     pin = cert_pin(cert)
-    assert len(pin) == 43 and oct(key.stat().st_mode & 0o777) == "0o600"
+    assert len(pin) == 43
+    if os.name == "posix":  # Windows has no mode bits; the profile ACL protects the key
+        assert oct(key.stat().st_mode & 0o777) == "0o600"
     assert cert_pin(ensure_identity(tmp_path / "tls")[0]) == pin  # stable across restarts
