@@ -130,6 +130,21 @@ class Host:
         """Ask the user (blocking) whether to trust a network: "trust", "no" or None (no answer)."""
         return None
 
+    # ------------------------------------------------------------------ interactive use
+
+    def launched_by_double_click(self) -> bool:
+        """True when this process owns its console window, i.e. it will vanish on exit."""
+        return False
+
+    def qr_as_image(self) -> bool:
+        """True where a QR drawn with block characters is unreliable (the Windows console font
+        and code page), so the pairing code should open as a picture instead."""
+        return False
+
+    def open_file(self, path: Path) -> bool:
+        """Open ``path`` with the OS's default viewer; False when that isn't possible."""
+        return False
+
     # ------------------------------------------------------------------ helpers
 
     @staticmethod

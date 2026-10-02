@@ -138,6 +138,28 @@ class WindowsHost(Host):
         state = ps(f"(Get-ScheduledTask -TaskName '{TASK_NAME}' -ErrorAction SilentlyContinue).State").strip()
         return {"Running": "active", "": "unknown"}.get(state, state.lower())
 
+    # ------------------------------------------------------------------ interactive use
+
+    def launched_by_double_click(self) -> bool:
+        """A console shared with its launcher (cmd, PowerShell) has 2+ processes attached; a window
+        Explorer opened just for us has exactly one."""
+        try:
+            import ctypes
+            buf = (ctypes.c_uint * 4)()
+            return ctypes.windll.kernel32.GetConsoleProcessList(buf, 4) <= 1
+        except (AttributeError, OSError):
+            return False
+
+    def qr_as_image(self) -> bool:
+        return True
+
+    def open_file(self, path: Path) -> bool:
+        try:
+            os.startfile(str(path))  # noqa: S606 - the user's own file, default viewer
+            return True
+        except (AttributeError, OSError):
+            return False
+
     # ------------------------------------------------------------------ firewall
 
     def firewall_active(self) -> bool:

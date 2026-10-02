@@ -199,3 +199,33 @@ def test_a_closed_listening_socket_is_detected():
     b.close()
     assert cli._listener_closed([[a], [b]])
     a.close()
+
+
+def test_no_command_prints_help_instead_of_an_argparse_error(capsys):
+    from hermes_remote_bridge import cli
+    cli.main([])
+    out = capsys.readouterr().out
+    assert "pair phone" in out and "doctor" in out
+
+
+def test_windows_shows_the_pairing_qr_as_a_picture(monkeypatch, tmp_path):
+    """Block characters are unreliable in the Windows console, so the QR must open as an image."""
+    from hermes_remote_bridge import cli
+    from hermes_remote_bridge.config import Config
+    opened = []
+    fake = type("H", (), {"name": "windows", "qr_as_image": lambda s: True,
+                          "open_file": lambda s, p: opened.append(p) or True})()
+    monkeypatch.setattr(cli, "host", lambda: fake)
+    cfg = Config(audit_log=tmp_path / "state" / "audit.log")
+    assert cli._show_qr("hermesremote://pair?v=2", cfg) is True
+    assert opened and opened[0].read_bytes()[:4] == b"\x89PNG"
+
+
+def test_terminal_qr_survives_a_console_that_cannot_encode_blocks(monkeypatch, tmp_path):
+    import io
+    from hermes_remote_bridge import cli
+    from hermes_remote_bridge.config import Config
+    monkeypatch.setattr(cli.sys, "stdout", io.TextIOWrapper(io.BytesIO(), encoding="cp1252"))
+    cfg = Config(audit_log=tmp_path / "audit.log")
+    cli._show_qr("hermesremote://pair?v=2", cfg)  # must not raise UnicodeEncodeError
+    assert (tmp_path / "pairing-qr.png").exists()

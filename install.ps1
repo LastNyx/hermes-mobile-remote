@@ -184,7 +184,10 @@ if (-not $Unattended) {
 Write-Host ''
 try { & $Bin doctor } catch { }
 Write-Host ''
-Bold 'Next: pair your phone'
-Info 'Install the app (APK from the GitHub releases page), then run:'
-Info "  & '$Bin' pair phone"
-Info 'and scan the QR code with the app.'
+Bold 'Pair your phone'
+Info 'Install the app first (APK from the GitHub releases page).'
+if (-not $Unattended -and (Ask 'Show the pairing QR code now?')) {
+    try { & $Bin pair phone } catch { Info "Pairing failed: $_" }
+} else {
+    Info 'Whenever you are ready: double-click pair.cmd in this folder.'
+}
