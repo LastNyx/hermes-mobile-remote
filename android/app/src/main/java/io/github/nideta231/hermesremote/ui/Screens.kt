@@ -7,19 +7,35 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -29,20 +45,21 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -52,16 +69,22 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.nideta231.hermesremote.ConnectionState
 import io.github.nideta231.hermesremote.SessionsState
 import io.github.nideta231.hermesremote.SystemState
+import io.github.nideta231.hermesremote.UpdateState
 import io.github.nideta231.hermesremote.data.DesktopInfo
 import io.github.nideta231.hermesremote.data.Pairing
 import io.github.nideta231.hermesremote.data.PairingParser
@@ -70,95 +93,179 @@ import io.github.nideta231.hermesremote.data.Transport
 import io.github.nideta231.hermesremote.data.TransportMode
 import kotlinx.coroutines.launch
 import java.text.DateFormat
+import java.util.Calendar
 import java.util.Date
 
 // ================================================================ Sessions
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+class SessionActions(
+    val open: (String) -> Unit,
+    val refresh: () -> Unit,
+    val loadMore: () -> Unit,
+    val rename: (String, String) -> Unit,
+    val delete: (String) -> Unit,
+    val setPinned: (String, Boolean) -> Unit,
+    val newChat: () -> Unit,
+    val openSettings: () -> Unit,
+    val openDesktop: () -> Unit,
+)
+
+private fun groupOf(s: SessionSummary): String {
+    if (s.pinned) return "Pinned"
+    val ts = s.lastActive ?: return "Older"
+    val now = Calendar.getInstance()
+    val then = Calendar.getInstance().apply { timeInMillis = (ts * 1000).toLong() }
+    val days = ((now.timeInMillis - then.timeInMillis) / 86_400_000L).toInt()
+    return when {
+        now.get(Calendar.YEAR) == then.get(Calendar.YEAR) && now.get(Calendar.DAY_OF_YEAR) == then.get(Calendar.DAY_OF_YEAR) -> "Today"
+        days < 2 -> "Yesterday"
+        days < 7 -> "This week"
+        days < 31 -> "This month"
+        else -> "Older"
+    }
+}
+
+private val groupOrder = listOf("Pinned", "Today", "Yesterday", "This week", "This month", "Older")
+
+/** The session list. On phones it lives in the navigation drawer; on tablets beside the chat. */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun SessionsScreen(
+fun SessionsPane(
     state: SessionsState,
     currentId: String?,
     activeRunSessionId: String?,
-    onOpen: (String) -> Unit,
-    onRefresh: () -> Unit,
-    onLoadMore: () -> Unit,
-    onRename: (String, String) -> Unit,
-    onDelete: (String) -> Unit,
-    onNewChat: () -> Unit,
+    actions: SessionActions,
+    modifier: Modifier = Modifier,
 ) {
+    var query by remember { mutableStateOf("") }
     var menuFor by remember { mutableStateOf<SessionSummary?>(null) }
     var renaming by remember { mutableStateOf<SessionSummary?>(null) }
     var deleting by remember { mutableStateOf<SessionSummary?>(null) }
 
-    PullToRefreshBox(isRefreshing = state.loading && state.items.isNotEmpty(), onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize()) {
-            item {
-                Text("Sessions", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(16.dp))
-                state.error?.let { Text(it, color = Bad, modifier = Modifier.padding(horizontal = 16.dp)) }
+    val grouped = remember(state.items, query) {
+        state.items
+            .filter { query.isBlank() || it.displayTitle.contains(query, true) || (it.preview?.contains(query, true) ?: false) }
+            .sortedWith(compareByDescending<SessionSummary> { it.pinned }.thenByDescending { it.lastActive ?: 0.0 })
+            .groupBy(::groupOf)
+            .toSortedMap(compareBy { groupOrder.indexOf(it) })
+    }
+
+    Column(modifier.fillMaxHeight().statusBarsPadding().navigationBarsPadding()) {
+        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(30.dp).background(Gold.copy(alpha = 0.16f), CircleShape), contentAlignment = Alignment.Center) {
+                Icon(Glyphs.Spark, null, tint = Gold, modifier = Modifier.size(16.dp))
             }
-            items(state.items.sortedWith(compareByDescending<SessionSummary> { it.pinned }
-                .thenByDescending { it.lastActive ?: 0.0 }), key = { it.id }) { s ->
-                SessionRow(s, current = s.id == currentId, running = s.id == activeRunSessionId,
-                    onClick = { onOpen(s.id) }, onLongClick = { menuFor = s })
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
-            }
-            item {
-                if (state.hasMore) {
-                    LaunchedEffect(state.items.size) { onLoadMore() }
-                    Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(20.dp)) }
-                } else if (state.items.isEmpty() && !state.loading) {
-                    Text("No sessions yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
+            Spacer(Modifier.width(10.dp))
+            Text("Hermes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            IconButton(onClick = actions.refresh) { Icon(Glyphs.Refresh, "Refresh", modifier = Modifier.size(20.dp)) }
+        }
+        Button(onClick = actions.newChat, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
+            Icon(Glyphs.Compose, null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("New chat", fontWeight = FontWeight.SemiBold)
+        }
+        SearchField(query, { query = it }, "Search chats", Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+
+        PullToRefreshBox(isRefreshing = state.loading && state.items.isNotEmpty(), onRefresh = actions.refresh,
+            modifier = Modifier.weight(1f).fillMaxWidth()) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
+                state.error?.let { err ->
+                    item(key = "err") {
+                        Text(err, color = Bad, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(12.dp))
+                    }
+                }
+                grouped.forEach { (group, list) ->
+                    item(key = "g-$group") { SectionLabel(group, Modifier.padding(start = 12.dp, top = 6.dp).animateItem()) }
+                    items(list, key = { it.id }) { s ->
+                        SessionRow(s, current = s.id == currentId, running = s.id == activeRunSessionId,
+                            modifier = Modifier.animateItem(),
+                            onClick = { actions.open(s.id) }, onLongClick = { menuFor = s })
+                    }
+                }
+                item {
+                    when {
+                        state.hasMore && query.isBlank() -> {
+                            LaunchedEffect(state.items.size) { actions.loadMore() }
+                            Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { TypingDots() }
+                        }
+                        state.loading && state.items.isEmpty() ->
+                            Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { TypingDots(Gold) }
+                        grouped.isEmpty() -> Text(if (query.isBlank()) "No chats yet." else "Nothing matches “$query”.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(20.dp))
+                    }
                 }
             }
         }
-        if (state.loading && state.items.isEmpty()) CircularProgressIndicator(Modifier.align(Alignment.Center))
-        FloatingActionButton(onClick = onNewChat, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)) {
-            Icon(Icons.Filled.Add, contentDescription = "New chat")
-        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+        PanelRow("Remote desktop", icon = Glyphs.Desktop, onClick = actions.openDesktop)
+        PanelRow("Settings", icon = Glyphs.Settings, onClick = actions.openSettings)
     }
 
     menuFor?.let { s ->
-        AlertDialog(onDismissRequest = { menuFor = null }, title = { Text(s.displayTitle, maxLines = 2) },
-            text = { Text("${s.messageCount} messages · ${s.source ?: "?"}") },
-            confirmButton = { TextButton(onClick = { renaming = s; menuFor = null }) { Text("Rename") } },
-            dismissButton = { TextButton(onClick = { deleting = s; menuFor = null }) { Text("Delete", color = Bad) } })
+        SessionActionsSheet(s, onDismiss = { menuFor = null },
+            onPin = { actions.setPinned(s.id, !s.pinned); menuFor = null },
+            onRename = { renaming = s; menuFor = null },
+            onDelete = { deleting = s; menuFor = null })
     }
     renaming?.let { s ->
         var title by remember { mutableStateOf(s.title ?: "") }
-        AlertDialog(onDismissRequest = { renaming = null }, title = { Text("Rename session") },
-            text = { OutlinedTextField(title, { title = it }, singleLine = true) },
-            confirmButton = { TextButton(enabled = title.isNotBlank(), onClick = { onRename(s.id, title.trim()); renaming = null }) { Text("Save") } },
+        AlertDialog(onDismissRequest = { renaming = null }, title = { Text("Rename chat") },
+            text = { OutlinedTextField(title, { title = it }, singleLine = true, shape = RoundedCornerShape(14.dp)) },
+            confirmButton = { TextButton(enabled = title.isNotBlank(), onClick = { actions.rename(s.id, title.trim()); renaming = null }) { Text("Save") } },
             dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } })
     }
     deleting?.let { s ->
-        AlertDialog(onDismissRequest = { deleting = null }, title = { Text("Delete session?") },
-            text = { Text("\"${s.displayTitle}\" will be permanently removed from Hermes. This cannot be undone.") },
-            confirmButton = { TextButton(onClick = { onDelete(s.id); deleting = null }) { Text("Delete", color = Bad) } },
+        AlertDialog(onDismissRequest = { deleting = null }, title = { Text("Delete chat?") },
+            text = { Text("“${s.displayTitle}” will be permanently removed from Hermes on your PC.") },
+            confirmButton = { TextButton(onClick = { actions.delete(s.id); deleting = null }) { Text("Delete", color = Bad) } },
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } })
     }
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SessionRow(s: SessionSummary, current: Boolean, running: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth()
-        .background(if (current) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surface)
-        .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-        .padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun SessionRow(s: SessionSummary, current: Boolean, running: Boolean, modifier: Modifier, onClick: () -> Unit, onLongClick: () -> Unit) {
+    val haptics = LocalHapticFeedback.current
+    val bg by animateColorAsState(if (current) Gold.copy(alpha = 0.13f) else Color.Transparent, label = "row")
+    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(bg)
+        .combinedClickable(onClick = onClick, onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onLongClick() })
+        .padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (s.pinned) {
-                    Text("★", color = Gold, style = MaterialTheme.typography.labelMedium)
-                    Spacer(Modifier.size(4.dp))
-                }
-                Text(s.displayTitle, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    fontWeight = if (current || s.pinned) FontWeight.SemiBold else FontWeight.Normal)
-            }
-            val meta = listOfNotNull(s.source, "${s.messageCount} msgs", s.model, s.lastActive?.let { relative(it) }).joinToString(" · ")
-            Text(meta, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(s.displayTitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (current) FontWeight.SemiBold else FontWeight.Normal)
+            val meta = listOfNotNull(s.lastActive?.let { relative(it) }, sourceLabel(s.source), "${s.messageCount} msgs").joinToString(" · ")
+            Text(meta, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
         }
-        if (running) Box(Modifier.size(8.dp).background(Gold, CircleShape))
+        if (running) { Spacer(Modifier.width(8.dp)); StatusDot(Gold, pulse = true) }
+        else if (s.pinned) { Spacer(Modifier.width(8.dp)); Icon(Glyphs.Pin, null, tint = Gold, modifier = Modifier.size(14.dp)) }
+    }
+}
+
+private fun sourceLabel(source: String?) = when (source) {
+    null, "", "api_server" -> null
+    "cli" -> "terminal"
+    "tui" -> "desktop"
+    else -> source
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SessionActionsSheet(s: SessionSummary, onDismiss: () -> Unit, onPin: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+            Text(s.displayTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2,
+                overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 20.dp))
+            Text(listOfNotNull("${s.messageCount} messages", s.model?.substringAfterLast('/'), sourceLabel(s.source)).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+            Spacer(Modifier.size(8.dp))
+            PanelRow(if (s.pinned) "Unpin" else "Pin", icon = Glyphs.Pin, iconTint = Gold, onClick = onPin)
+            PanelRow("Rename", icon = Glyphs.Edit, onClick = onRename)
+            PanelRow("Delete", icon = Glyphs.Trash, iconTint = Bad, titleColor = Bad, onClick = onDelete)
+        }
     }
 }
 
@@ -173,67 +280,312 @@ private fun relative(epochSec: Double): String {
     }
 }
 
-// ================================================================ Desktop
+// ================================================================ Shared page chrome
 
-private data class RdpClient(val label: String, val pkg: String?, val uri: (DesktopInfo) -> String)
+/** Top bar for secondary pages (settings, desktop): back arrow and a title. */
+@Composable
+fun PageScaffold(title: String, onBack: (() -> Unit)?, content: @Composable () -> Unit) {
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (onBack != null) IconButton(onClick = onBack) { Icon(Glyphs.Back, "Back") } else Spacer(Modifier.width(16.dp))
+            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        }
+        Box(Modifier.weight(1f).fillMaxWidth()) { content() }
+    }
+}
 
-private val rdpClients = listOf(
-    // aFreeRDP: FreeRDP's own client; the upstream KRdp project is tested against FreeRDP.
-    RdpClient("aFreeRDP", "com.freerdp.afreerdp") { d ->
-        val user = d.username?.let { Uri.encode(it) + "@" } ?: ""
-        "freerdp://$user${d.host}:${d.port}/connect?clipboard=%2B&gfx=&dynamic-resolution=&network=auto"
-    },
-    RdpClient("Other RDP app", null) { d -> d.rdpUri },
+// ================================================================ Settings
+
+class SettingsActions(
+    val refresh: () -> Unit,
+    val unpair: () -> Unit,
+    val setApprovalMode: (String) -> Unit,
+    val useTransport: (Transport) -> Unit,
+    val useAuto: () -> Unit,
+    val checkUpdate: () -> Unit,
+    val installUpdate: () -> Unit,
+    val openDesktop: () -> Unit,
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DesktopScreen(info: Result<DesktopInfo>?, statusOk: Boolean?, onLoad: () -> Unit) {
-    val context = LocalContext.current
-    LaunchedEffect(Unit) { onLoad() }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Desktop", style = MaterialTheme.typography.titleLarge)
-        Text("Your real KDE Plasma session over RDP (KRdp). Log in with your PC user account password.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-        when {
-            info == null -> CircularProgressIndicator()
-            info.isFailure -> {
-                Text(info.exceptionOrNull()?.message ?: "Unavailable", color = Bad)
-                OutlinedButton(onClick = onLoad) { Text("Retry") }
-            }
-            else -> {
-                val d = info.getOrThrow()
-                Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(8.dp).background(when (statusOk) { true -> Ok; false -> Bad; null -> Warn }, CircleShape))
-                            Spacer(Modifier.size(8.dp))
-                            Text(when (statusOk) { true -> "KRdp is running"; false -> "KRdp is down on the PC"; null -> "Status unknown" })
+fun SettingsScreen(
+    state: SystemState,
+    pairing: Pairing?,
+    conn: ConnectionState,
+    update: UpdateState,
+    actions: SettingsActions,
+    onBack: (() -> Unit)?,
+) {
+    var confirmUnpair by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { actions.refresh() }
+    PageScaffold("Settings", onBack) {
+        PullToRefreshBox(isRefreshing = state.loading, onRefresh = actions.refresh, modifier = Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 4.dp)) {
+                UpdateBanner(update, actions.installUpdate)
+                SectionLabel("Connection")
+                ConnectionPanel(conn, state.error, actions)
+                SectionLabel("Your PC")
+                StatusPanel(state)
+                SectionLabel("Command approvals")
+                ApprovalPanel(state, actions.setApprovalMode)
+                SectionLabel("Tools")
+                Panel { PanelRow("Remote desktop", "Open your PC's screen in an RDP app", Glyphs.Desktop, onClick = actions.openDesktop) }
+                SectionLabel("This device")
+                Panel {
+                    PanelRow("App version", update.installed.ifBlank { "?" }, Glyphs.Download, onClick = actions.checkUpdate) {
+                        when {
+                            update.checking -> TypingDots()
+                            update.available != null -> Pill("Update", tint = Color.Black, container = Gold, onClick = actions.installUpdate)
+                            update.checkedAt != null -> Text("Up to date", style = MaterialTheme.typography.labelMedium, color = Ok)
+                            else -> Text("Check", style = MaterialTheme.typography.labelMedium, color = Gold)
                         }
-                        Detail("Host", "${d.host}:${d.port}", context)
-                        d.dnsName?.takeIf { it.isNotEmpty() }?.let { Detail("Name", it, context) }
-                        d.username?.let { Detail("User", it, context) }
                     }
-                }
-                rdpClients.forEach { c ->
-                    val installed = c.pkg == null || isInstalled(context, c.pkg)
-                    Button(onClick = { launch(context, c, d) }, modifier = Modifier.fillMaxWidth(), enabled = installed || c.pkg != null) {
-                        Text(if (installed) "Open in ${c.label}" else "Get ${c.label}", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    update.error?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = Bad, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     }
+                    pairing?.let { PanelRow("Paired as “${it.device}”", it.url, Glyphs.Qr) }
+                    PanelRow("Unpair this device", icon = Glyphs.Close, iconTint = Bad, titleColor = Bad, onClick = { confirmUnpair = true })
                 }
-                Text("Tips: start with a moderate resolution. Microsoft's Android RD client is known not to work with KRdp; " +
-                    "aFreeRDP (F-Droid / Play) is the recommended client. If the screen stays black, disable \"gfx\" in its bookmark settings.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.size(24.dp))
+            }
+        }
+    }
+    if (confirmUnpair) {
+        AlertDialog(onDismissRequest = { confirmUnpair = false }, title = { Text("Unpair?") },
+            text = { Text("Removes the token from this phone. Also run `hermes-remote-bridge revoke ${pairing?.device ?: "<name>"}` on the PC to invalidate it there.") },
+            confirmButton = { TextButton(onClick = { confirmUnpair = false; actions.unpair() }) { Text("Unpair", color = Bad) } },
+            dismissButton = { TextButton(onClick = { confirmUnpair = false }) { Text("Cancel") } })
+    }
+}
+
+@Composable
+private fun UpdateBanner(u: UpdateState, onInstall: () -> Unit) {
+    val available = u.available
+    AnimatedVisibility(available != null || u.progress != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+        Surface(color = Gold.copy(alpha = 0.14f), shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+            Column(Modifier.padding(16.dp).animateContentSize()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Glyphs.Download, null, tint = Gold, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text(if (u.progress != null) "Downloading ${available?.version ?: "update"}…" else "Version ${available?.version} is ready",
+                        fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                }
+                val progress = u.progress
+                if (progress != null) {
+                    LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp).clip(CircleShape))
+                } else {
+                    available?.notes?.takeIf { it.isNotBlank() }?.let {
+                        Box(Modifier.padding(top = 6.dp).heightIn(max = 120.dp)) { MarkdownText(it.take(600)) }
+                    }
+                    Button(onClick = onInstall, modifier = Modifier.padding(top = 10.dp)) { Text("Update now") }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun Detail(label: String, value: String, context: Context) {
-    Row(Modifier.fillMaxWidth().clickable { copy(context, value) }, verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.widthIn(min = 56.dp))
-        Text(value, fontFamily = FontFamily.Monospace, fontSize = 14.sp, modifier = Modifier.weight(1f))
-        Text("copy", style = MaterialTheme.typography.labelSmall, color = Gold)
+private fun ConnectionPanel(conn: ConnectionState, error: String?, actions: SettingsActions) {
+    Panel {
+        val (icon, tint, title) = when {
+            conn.searching -> Triple(Glyphs.Refresh, Warn, "Connecting…")
+            error != null || conn.activeUrl == null -> Triple(Glyphs.Offline, Bad, "Can't reach your PC")
+            conn.transport == Transport.LAN -> Triple(Glyphs.Wifi, Ok, "Local network")
+            else -> Triple(Glyphs.Globe, MaterialTheme.colorScheme.secondary, "Tailscale")
+        }
+        val sub = when {
+            error != null -> error
+            conn.needsRepairForLan -> "Pair again from the PC to use the local network securely."
+            conn.transport == Transport.TAILNET && conn.pcNetwork != null && conn.pcNetworkTrusted == false ->
+                "Your PC is on “${conn.pcNetwork}”, which isn't trusted, so it only answers over Tailscale."
+            conn.transport == Transport.LAN -> "Direct and encrypted, verified as your PC"
+            conn.transport == Transport.TAILNET -> "Through your tailnet"
+            else -> null
+        }
+        PanelRow(title, sub, icon, iconTint = tint) { if (conn.searching) TypingDots(Warn) }
+        conn.activeUrl?.let {
+            Text(it, fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 52.dp, end = 16.dp, bottom = 8.dp))
+        }
+        if (error != null) {
+            Text("Check that the phone is on a trusted Wi-Fi or Tailscale, the PC is awake, and the bridge runs " +
+                "(`hermes-remote-bridge doctor` on the PC).", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 52.dp, end = 16.dp, bottom = 8.dp))
+        }
+        Text("Route", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 16.dp, top = 4.dp))
+        Segmented(
+            options = listOf("Auto", "Local", "Tailscale"),
+            selected = when (conn.mode) { TransportMode.AUTO -> 0; TransportMode.LAN -> 1; TransportMode.TAILNET -> 2 },
+            enabled = listOf(true, conn.lanAvailable && !conn.needsRepairForLan, conn.tailnetAvailable),
+            onSelect = { i -> when (i) { 0 -> actions.useAuto(); 1 -> actions.useTransport(Transport.LAN); else -> actions.useTransport(Transport.TAILNET) } },
+            modifier = Modifier.padding(16.dp),
+        )
+    }
+}
+
+/** A row of equal segments with a sliding highlight. */
+@Composable
+fun Segmented(options: List<String>, selected: Int, enabled: List<Boolean>, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerHighest, shape = CircleShape, modifier = modifier.fillMaxWidth()) {
+        Row(Modifier.padding(4.dp)) {
+            options.forEachIndexed { i, label ->
+                val on = i == selected
+                val bg by animateColorAsState(if (on) Gold else Color.Transparent, label = "seg$i")
+                val fg by animateColorAsState(when {
+                    on -> MaterialTheme.colorScheme.onPrimary
+                    enabled[i] -> MaterialTheme.colorScheme.onSurface
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                }, label = "segfg$i")
+                Box(Modifier.weight(1f).clip(CircleShape).background(bg)
+                    .clickable(enabled = enabled[i] && !on) { onSelect(i) }.padding(vertical = 9.dp), contentAlignment = Alignment.Center) {
+                    Text(label, color = fg, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusPanel(state: SystemState) {
+    Panel {
+        if (state.components.isEmpty()) {
+            Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
+                if (state.loading) TypingDots(Gold)
+                else Text("No status yet. Pull to refresh.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        state.components.forEach { c ->
+            var open by remember(c.key) { mutableStateOf(false) }
+            Column(Modifier.animateContentSize()) {
+                PanelRow(c.label, c.summary, icon = when (c.key) {
+                    "hermes" -> Glyphs.Spark; "model" -> Glyphs.Chip; "desktop" -> Glyphs.Desktop
+                    "tailscale" -> Glyphs.Globe; else -> Glyphs.Bolt
+                }, onClick = if (c.detail != null) ({ open = !open }) else null) {
+                    StatusDot(if (c.ok) Ok else Bad)
+                }
+                if (open && c.detail != null) {
+                    Text(c.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 52.dp, end = 16.dp, bottom = 10.dp))
+                }
+            }
+        }
+        state.checkedAt?.let {
+            Text("Checked ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it))} · pull to refresh",
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp))
+        }
+    }
+}
+
+private val approvalModes = listOf(
+    Triple("manual", "Manual", "Ask before every risky command"),
+    Triple("smart", "Smart", "An AI check allows safe commands and asks only when unsure"),
+    Triple("off", "Off", "Never ask. Every command runs"),
+)
+
+@Composable
+private fun ApprovalPanel(state: SystemState, onPick: (String) -> Unit) {
+    Panel {
+        Text("Applies to Hermes everywhere: desktop, messaging and this app.", style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp))
+        Segmented(
+            options = approvalModes.map { it.second },
+            selected = approvalModes.indexOfFirst { it.first == state.approvalMode },
+            enabled = approvalModes.map { state.approvalMode != null && !state.approvalSaving },
+            onSelect = { onPick(approvalModes[it].first) },
+            modifier = Modifier.padding(16.dp),
+        )
+        val current = approvalModes.firstOrNull { it.first == state.approvalMode }
+        AnimatedContent(current, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "mode") { m ->
+            Text(when {
+                state.approvalSaving -> "Saving…"
+                m == null -> "Unknown. Pull to refresh."
+                else -> m.third
+            }, style = MaterialTheme.typography.bodySmall,
+                color = if (m?.first == "off") Bad else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp))
+        }
+    }
+}
+
+// ================================================================ Desktop
+
+private data class RdpClient(val label: String, val pkg: String?, val uri: (DesktopInfo) -> String)
+
+private val rdpClients = listOf(
+    // aFreeRDP: FreeRDP's own client; KRdp is tested against FreeRDP.
+    RdpClient("aFreeRDP", "com.freerdp.afreerdp") { d ->
+        val user = d.username?.let { Uri.encode(it) + "@" } ?: ""
+        "freerdp://$user${d.host}:${d.port}/connect?clipboard=%2B&gfx=&dynamic-resolution=&network=auto"
+    },
+    RdpClient("another RDP app", null) { d -> d.rdpUri },
+)
+
+@Composable
+fun DesktopScreen(info: Result<DesktopInfo>?, statusOk: Boolean?, onLoad: () -> Unit, onBack: (() -> Unit)?) {
+    val context = LocalContext.current
+    LaunchedEffect(Unit) { onLoad() }
+    PageScaffold("Remote desktop", onBack) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 16.dp)) {
+            Box(Modifier.fillMaxWidth().padding(vertical = 20.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(84.dp).background(MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Glyphs.Desktop, null, tint = Gold, modifier = Modifier.size(40.dp))
+                }
+            }
+            Text("Your real desktop session over RDP. Log in with your PC account password.",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.size(16.dp))
+            AnimatedContent(info, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "desktop") { res ->
+                when {
+                    res == null -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { TypingDots(Gold) }
+                    res.isFailure -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                        Text(res.exceptionOrNull()?.message ?: "Unavailable", color = Bad, textAlign = TextAlign.Center)
+                        OutlinedButton(onClick = onLoad, modifier = Modifier.padding(top = 8.dp)) { Text("Retry") }
+                    }
+                    else -> DesktopDetails(res.getOrThrow(), statusOk, context)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DesktopDetails(d: DesktopInfo, statusOk: Boolean?, context: Context) {
+    Column {
+        Panel {
+            PanelRow(when (statusOk) { true -> "Remote desktop is running"; false -> "Remote desktop is off on the PC"; null -> "Status unknown" },
+                icon = Glyphs.Bolt) { StatusDot(when (statusOk) { true -> Ok; false -> Bad; null -> Warn }) }
+            CopyRow("Address", "${d.host}:${d.port}", context)
+            d.dnsName?.takeIf { it.isNotEmpty() }?.let { CopyRow("Name", it, context) }
+            d.username?.let { CopyRow("User", it, context) }
+        }
+        Spacer(Modifier.size(16.dp))
+        rdpClients.forEach { c ->
+            val installed = c.pkg == null || isInstalled(context, c.pkg)
+            val primary = c.pkg != null
+            val label = if (installed) "Open in ${c.label}" else "Get ${c.label}"
+            if (primary) Button(onClick = { launch(context, c, d) }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                contentPadding = PaddingValues(vertical = 14.dp), shape = RoundedCornerShape(16.dp)) { Text(label, fontWeight = FontWeight.SemiBold) }
+            else OutlinedButton(onClick = { launch(context, c, d) }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                contentPadding = PaddingValues(vertical = 14.dp), shape = RoundedCornerShape(16.dp)) { Text(label) }
+        }
+        Text("aFreeRDP is the recommended client; Microsoft's Android client doesn't work with KRdp. " +
+            "If the screen stays black, turn off “gfx” in the bookmark settings.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
+    }
+}
+
+@Composable
+private fun CopyRow(label: String, value: String, context: Context) {
+    Row(Modifier.fillMaxWidth().clickable { copy(context, value) }.padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(72.dp))
+        Text(value, fontFamily = FontFamily.Monospace, fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Icon(Glyphs.Copy, "Copy", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
     }
 }
 
@@ -261,115 +613,16 @@ private fun launch(context: Context, c: RdpClient, d: DesktopInfo) {
     }
 }
 
-// ================================================================ System
-
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-@Composable
-fun SystemScreen(state: SystemState, pairing: Pairing?, onRefresh: () -> Unit, onUnpair: () -> Unit,
-                 onApprovalMode: (String) -> Unit = {}, conn: ConnectionState = ConnectionState(),
-                 onUseTransport: (Transport) -> Unit = {}, onUseAuto: () -> Unit = {},
-                 update: io.github.nideta231.hermesremote.UpdateState = io.github.nideta231.hermesremote.UpdateState(),
-                 onCheckUpdate: () -> Unit = {}, onInstallUpdate: () -> Unit = {}) {
-    var confirmUnpair by remember { mutableStateOf(false) }
-    PullToRefreshBox(isRefreshing = state.loading, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("System", style = MaterialTheme.typography.titleLarge)
-            ConnectionCard(conn, onUseTransport, onUseAuto)
-            ApprovalModeCard(state, onPick = onApprovalMode)
-            state.error?.let {
-                Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(8.dp).background(Bad, CircleShape)); Spacer(Modifier.size(8.dp))
-                            Text("Bridge unreachable", fontWeight = FontWeight.SemiBold)
-                        }
-                        Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
-                        Text("Check: same trusted Wi-Fi as the PC, or Tailscale on (here and on the PC) · the PC is on and awake · " +
-                            "`systemctl --user status hermes-remote-bridge` on the PC.",
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
-                    }
-                }
-            }
-            state.components.forEach { c ->
-                Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(8.dp).background(if (c.ok) Ok else Bad, CircleShape)); Spacer(Modifier.size(8.dp))
-                            Text(c.label, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                            Text(c.summary, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 220.dp))
-                        }
-                        c.detail?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp)) }
-                    }
-                }
-            }
-            state.checkedAt?.let {
-                Text("Checked ${DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(it))}. Pull to refresh.",
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            pairing?.let {
-                Text("Paired as \"${it.device}\"", fontWeight = FontWeight.SemiBold)
-                Text(it.url, fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            OutlinedButton(onClick = { confirmUnpair = true }) { Text("Unpair this device", color = Bad, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            UpdateCard(update, onCheckUpdate, onInstallUpdate)
-        }
-    }
-    if (confirmUnpair) {
-        AlertDialog(onDismissRequest = { confirmUnpair = false }, title = { Text("Unpair?") },
-            text = { Text("Removes the token from this device. Also run `hermes-remote-bridge revoke ${pairing?.device ?: "<name>"}` on the PC to invalidate it there.") },
-            confirmButton = { TextButton(onClick = { confirmUnpair = false; onUnpair() }) { Text("Unpair", color = Bad) } },
-            dismissButton = { TextButton(onClick = { confirmUnpair = false }) { Text("Cancel") } })
-    }
-}
-
-@Composable
-private fun UpdateCard(u: io.github.nideta231.hermesremote.UpdateState, onCheck: () -> Unit, onInstall: () -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("App version", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                Text(u.installed, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            val available = u.available
-            when {
-                u.progress != null -> {
-                    Text("Downloading ${available?.version ?: "update"}…", style = MaterialTheme.typography.bodySmall)
-                    androidx.compose.material3.LinearProgressIndicator(progress = { u.progress }, modifier = Modifier.fillMaxWidth())
-                }
-                available != null -> {
-                    Text("Version ${available.version} is available.", style = MaterialTheme.typography.bodyMedium, color = Ok)
-                    if (available.notes.isNotBlank()) {
-                        Text(available.notes.take(600), style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 8, overflow = TextOverflow.Ellipsis)
-                    }
-                    androidx.compose.material3.Button(onClick = onInstall) { Text("Update to ${available.version}") }
-                }
-                else -> {
-                    val status = when {
-                        u.checking -> "Checking GitHub…"
-                        u.checkedAt != null -> "Up to date."
-                        else -> "Updates come from GitHub Releases."
-                    }
-                    Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = onCheck, enabled = !u.checking, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("Check for updates") }
-                }
-            }
-            u.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Bad) }
-        }
-    }
-}
-
 // ================================================================ Pairing
 
 @Composable
 fun PairScreen(initialUri: String?, onScan: () -> Unit, onPair: suspend (Pairing) -> String?) {
     val scope = rememberCoroutineScope()
-    var url by remember { mutableStateOf("http://") }
+    var url by remember { mutableStateOf("https://") }
     var token by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var manual by remember { mutableStateOf(false) }
 
     fun attempt(p: Result<Pairing>) {
         val pairing = p.getOrElse { error = it.message; return }
@@ -384,110 +637,67 @@ fun PairScreen(initialUri: String?, onScan: () -> Unit, onPair: suspend (Pairing
         if (initialUri != null) attempt(runCatching { PairingParser.parseUri(initialUri) })
     }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Spacer(Modifier.size(24.dp))
-        Text("Hermes Remote", style = MaterialTheme.typography.headlineMedium, color = Gold, fontWeight = FontWeight.SemiBold)
-        Text("Pair this device with the bridge on your PC. Run on the PC:", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Surface(color = MaterialTheme.colorScheme.surfaceContainerHighest, shape = RoundedCornerShape(8.dp)) {
-            Text("hermes-remote-bridge pair phone", fontFamily = FontFamily.Monospace, fontSize = 13.sp, modifier = Modifier.padding(10.dp))
+    Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).statusBarsPadding().navigationBarsPadding()
+        .padding(horizontal = 24.dp, vertical = 16.dp)) {
+        Spacer(Modifier.size(40.dp))
+        Box(Modifier.size(72.dp).background(Gold.copy(alpha = 0.16f), CircleShape), contentAlignment = Alignment.Center) {
+            Icon(Glyphs.Spark, null, tint = Gold, modifier = Modifier.size(34.dp))
         }
-        Text("Tailscale must be connected on this device.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Button(onClick = onScan, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Scan pairing QR code", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-        HorizontalDivider()
-        Text("Or enter manually", style = MaterialTheme.typography.labelLarge)
-        OutlinedTextField(url, { url = it }, label = { Text("Bridge URL") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
-        OutlinedTextField(token, { token = it }, label = { Text("Token (hrb_…)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedButton(onClick = { attempt(runCatching { PairingParser.validate(url, token) }) }, enabled = !busy && token.isNotBlank(),
-            modifier = Modifier.fillMaxWidth()) { Text("Connect") }
-        if (busy) CircularProgressIndicator()
-        error?.let { Text(it, color = Bad) }
-    }
-}
-
-private val approvalModes = listOf(
-    Triple("manual", "Manual", "Ask before every risky command."),
-    Triple("smart", "Smart", "An AI check auto-allows safe commands, blocks dangerous ones, asks only when unsure."),
-    Triple("off", "Off", "Never ask. Every command runs (same as --yolo)."),
-)
-
-@Composable
-private fun ApprovalModeCard(state: SystemState, onPick: (String) -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(vertical = 10.dp)) {
-            Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Command approvals", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                if (state.approvalSaving) Text("Saving…", style = MaterialTheme.typography.labelSmall, color = Warn)
+        Spacer(Modifier.size(20.dp))
+        Text("Hermes Remote", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
+        Text("Your Hermes agent, from your phone.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.size(28.dp))
+        Step(1, "On your PC, run", code = "hermes-remote-bridge pair phone")
+        Step(2, "Scan the QR code it shows")
+        Spacer(Modifier.size(20.dp))
+        Button(onClick = onScan, enabled = !busy, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp),
+            contentPadding = PaddingValues(vertical = 16.dp)) {
+            Icon(Glyphs.Qr, null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(10.dp))
+            Text("Scan pairing code", fontWeight = FontWeight.SemiBold)
+        }
+        AnimatedVisibility(busy) {
+            Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                TypingDots(Gold); Spacer(Modifier.width(10.dp)); Text("Connecting to your PC", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text("Applies to Hermes everywhere: desktop, messaging platforms and this app.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp))
-            if (state.approvalMode == null) {
-                Text("Unknown — pull to refresh.", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(14.dp))
+        }
+        AnimatedVisibility(error != null) {
+            Surface(color = Bad.copy(alpha = 0.14f), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                Text(error ?: "", color = Bad, modifier = Modifier.padding(14.dp), style = MaterialTheme.typography.bodyMedium)
             }
-            approvalModes.forEach { (id, label, hint) ->
-                val selected = state.approvalMode == id
-                Row(Modifier.fillMaxWidth()
-                        .clickable(enabled = state.approvalMode != null && !state.approvalSaving) { onPick(id) }
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(selected = selected, onClick = null, modifier = Modifier.padding(8.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(label, color = if (id == "off" && selected) Bad else MaterialTheme.colorScheme.onSurface)
-                        Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
+        }
+        Spacer(Modifier.size(12.dp))
+        TextButton(onClick = { manual = !manual }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+            Text(if (manual) "Hide manual entry" else "Enter address and token manually")
+        }
+        AnimatedVisibility(manual, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(url, { url = it }, label = { Text("Bridge URL") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
+                OutlinedTextField(token, { token = it }, label = { Text("Token (hrb_…)") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp))
+                OutlinedButton(onClick = { attempt(runCatching { PairingParser.validate(url, token) }) }, enabled = !busy && token.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Text("Connect") }
             }
         }
     }
 }
 
 @Composable
-private fun ConnectionCard(conn: ConnectionState, onUseTransport: (Transport) -> Unit, onUseAuto: () -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(vertical = 10.dp)) {
-            Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Connection", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                if (conn.searching) Text("Trying…", style = MaterialTheme.typography.labelSmall, color = Warn)
-            }
-            Text(conn.activeUrl?.let { url ->
-                when (conn.transport) {
-                    Transport.LAN -> "Using the local network · $url"
-                    Transport.TAILNET -> "Using Tailscale · $url"
-                    null -> url
-                }
-            } ?: "Not connected", style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp))
-            val hint = when {
-                conn.needsRepairForLan -> "Pair again from the PC (hermes-remote-bridge pair) to use the local network securely."
-                conn.transport == Transport.TAILNET && conn.pcNetwork != null && conn.pcNetworkTrusted == false ->
-                    "The PC's network (${conn.pcNetwork}) isn't trusted, so it only answers over Tailscale. " +
-                        "If you control it, run `hermes-remote-bridge trust` on the PC."
-                conn.transport == Transport.LAN -> "Encrypted, verified as your PC"
-                else -> null
-            }
-            hint?.let {
-                Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp))
-            }
-            // Only offer the transport that is not in use AND advertised by the bridge, so the
-            // button is never a dead end.
-            if (conn.transport == Transport.TAILNET && conn.lanAvailable && !conn.needsRepairForLan) {
-                TextButton(onClick = { onUseTransport(Transport.LAN) }, modifier = Modifier.padding(horizontal = 8.dp)) {
-                    Text("Switch to local network", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-            if (conn.transport == Transport.LAN && conn.tailnetAvailable) {
-                TextButton(onClick = { onUseTransport(Transport.TAILNET) }, modifier = Modifier.padding(horizontal = 8.dp)) {
-                    Text("Switch to Tailscale", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-            if (conn.mode != TransportMode.AUTO && conn.activeUrl != null) {
-                TextButton(onClick = onUseAuto, modifier = Modifier.padding(horizontal = 8.dp)) {
-                    Text("Automatic (prefer local network)", maxLines = 1, overflow = TextOverflow.Ellipsis)
+private fun Step(n: Int, text: String, code: String? = null) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.Top) {
+        Box(Modifier.size(26.dp).background(MaterialTheme.colorScheme.surfaceContainerHighest, CircleShape), contentAlignment = Alignment.Center) {
+            Text("$n", style = MaterialTheme.typography.labelLarge, color = Gold)
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f).padding(top = 3.dp)) {
+            Text(text, style = MaterialTheme.typography.bodyLarge)
+            code?.let {
+                Surface(color = MaterialTheme.colorScheme.surfaceContainerHighest, shape = RoundedCornerShape(10.dp), modifier = Modifier.padding(top = 6.dp)) {
+                    Text(it, fontFamily = FontFamily.Monospace, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp))
                 }
             }
         }
     }
 }
+

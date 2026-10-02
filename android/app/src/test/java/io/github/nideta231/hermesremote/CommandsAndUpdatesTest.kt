@@ -86,3 +86,12 @@ class CommandsAndUpdatesTest {
         assertNull(Updater.parseRelease(JSONObject("""{"tag_name":"v1","assets":[{"name":"x.zip","browser_download_url":"u"}]}""")))
     }
 }
+
+class ToolResultTest {
+    @org.junit.Test
+    fun unwrapsJsonOutput() {
+        org.junit.Assert.assertEquals("a\nb", io.github.nideta231.hermesremote.ui.readableToolResult("""{"output": "a\nb", "exit_code": 0, "error": null}"""))
+        org.junit.Assert.assertEquals("boom\n[exit 2]", io.github.nideta231.hermesremote.ui.readableToolResult("""{"output": "boom", "exit_code": 2}"""))
+        org.junit.Assert.assertEquals("plain text", io.github.nideta231.hermesremote.ui.readableToolResult("plain text"))
+    }
+}

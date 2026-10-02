@@ -62,6 +62,8 @@ data class ChatState(
     val sending: Boolean = false,
     /** True while the session is being driven from another surface and we are tailing it. */
     val following: Boolean = false,
+    /** New messages arrived from another surface in the last few polls: something is running there. */
+    val remoteActive: Boolean = false,
     val pinned: Boolean = false,
     val sessionModel: String? = null,
     /** Unsent composer text for this session; survives tab switches and process death. */
@@ -529,7 +531,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
                 val items = if (userText != null) base + ChatItem.User("u-${run.runId}", userText) else base
                 _chat.update { it.copy(sessionId = id, title = summary?.displayTitle ?: it.title, items = items,
                     run = run, loading = false, pinned = summary?.pinned ?: false,
-                    sessionModel = summary?.model, following = false) }
+                    sessionModel = summary?.model, following = false, remoteActive = false) }
                 attach(run, fromSeq = 0)
             } else {
                 _chat.update { it.copy(sessionId = id, title = summary?.displayTitle ?: it.title,
@@ -579,26 +581,34 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
                 if (s.changed && s.messages.isNotEmpty()) {
                     idle = 0
                     val fresh = HistoryMapper.map(org.json.JSONArray().also { a -> s.messages.forEach(a::put) })
-                    _chat.update { st -> st.copy(items = st.items + fresh, sessionModel = s.model ?: st.sessionModel) }
+                    _chat.update { st -> st.copy(items = st.items + fresh, sessionModel = s.model ?: st.sessionModel, remoteActive = true) }
                 } else {
                     idle++
+                    if (idle >= 3 && _chat.value.remoteActive) _chat.update { it.copy(remoteActive = false) }
                 }
             }
         }
     }
 
     fun togglePin() {
-        val c = client ?: return
         val id = _chat.value.sessionId ?: return
-        val next = !_chat.value.pinned
-        _chat.update { it.copy(pinned = next) }
+        setPinned(id, !_chat.value.pinned)
+    }
+
+    /** Pin or unpin any session; updates the list and the open chat optimistically. */
+    fun setPinned(id: String, pinned: Boolean) {
+        val c = client ?: return
+        fun apply(value: Boolean) {
+            if (_chat.value.sessionId == id) _chat.update { it.copy(pinned = value) }
+            _sessions.update { s -> s.copy(items = s.items.map { if (it.id == id) it.copy(pinned = value) else it }) }
+        }
+        apply(pinned)
         viewModelScope.launch {
             try {
-                c.setPinned(id, next)
-                refreshSessions()
+                c.setPinned(id, pinned)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
-                _chat.update { it.copy(pinned = !next) }
+                apply(!pinned)
                 say(t)
             }
         }
@@ -676,7 +686,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
                 val run = startWithRetry(c, sid, trimmed, requestId)
                 store.pendingSend = null
                 _chat.update { st ->
-                    st.copy(sending = false, run = run, following = false,
+                    st.copy(sending = false, run = run, following = false, remoteActive = false,
                         items = st.items.map { if (it is ChatItem.User && it.key == "u-$requestId") it.copy(pending = false) else it })
                 }
                 attach(run, fromSeq = 0)

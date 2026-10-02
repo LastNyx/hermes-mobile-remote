@@ -1,76 +1,82 @@
 package io.github.nideta231.hermesremote
 
+import android.Manifest
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import android.Manifest
-import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts.RequestPermission
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts.RequestPermission
 import androidx.activity.viewModels
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Icon
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
+import androidx.compose.material3.Surface
 import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.PathParser
-import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import io.github.nideta231.hermesremote.data.Notifier
-import io.github.nideta231.hermesremote.ui.AgentScreen
+import io.github.nideta231.hermesremote.ui.ChatActions
+import io.github.nideta231.hermesremote.ui.ChatScreen
 import io.github.nideta231.hermesremote.ui.DesktopScreen
 import io.github.nideta231.hermesremote.ui.HermesTheme
 import io.github.nideta231.hermesremote.ui.PairScreen
-import io.github.nideta231.hermesremote.ui.SessionsScreen
-import io.github.nideta231.hermesremote.ui.SystemScreen
+import io.github.nideta231.hermesremote.ui.SessionActions
+import io.github.nideta231.hermesremote.ui.SessionsPane
+import io.github.nideta231.hermesremote.ui.SettingsActions
+import io.github.nideta231.hermesremote.ui.SettingsScreen
+import io.github.nideta231.hermesremote.ui.linkHealth
+import kotlinx.coroutines.launch
 
-enum class Tab(val label: String, val path: String) {
-    AGENT("Agent", "M4,4h16v12H7l-3,3z"),
-    SESSIONS("Sessions", "M4,5h16v2H4z M4,11h16v2H4z M4,17h10v2H4z"),
-    DESKTOP("Desktop", "M3,4h18v12H3z M5,6v8h14V6z M9,18h6v2H9z"),
-    SYSTEM("System", "M12,3a9,9 0 1,0 0.01,0z M11,7h2v6h-2z M11,15h2v2h-2z"),
-}
-
-private fun icon(path: String) = ImageVector.Builder(defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f)
-    .addPath(PathParser().parsePathString(path).toNodes(), fill = SolidColor(androidx.compose.ui.graphics.Color.White))
-    .build()
+/** Chat is home; the others are pages pushed on top of it. */
+enum class Page { CHAT, SETTINGS, DESKTOP }
 
 class MainActivity : ComponentActivity() {
     private val vm: AppViewModel by viewModels()
     private val pairUri = mutableStateOf<String?>(null)
-    private val openAgentTab = mutableStateOf(false)
+    private val showChat = mutableStateOf(false)
 
     private val scanner = registerForActivityResult(ScanContract()) { result ->
         result.contents?.let { pairUri.value = it }
     }
 
-    // Asked once, right after pairing succeeds: without this the app can still run a turn, it
-    // just cannot say anything when the turn ends while the phone is in a pocket.
+    // Asked right after pairing: without it a run still works, but the app can't say it
+    // finished while the phone is in a pocket.
     private val notifPermission = registerForActivityResult(RequestPermission()) {}
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -78,10 +84,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         handleIntent(intent)
         Notifier.ensureChannels(this)
-        // Already-paired installs (upgrades) never pass through pairing, so ask here too.
-        // Android itself stops showing the prompt after the user declines twice.
+        // Upgrades never pass through pairing, so ask here too. Android stops prompting after two declines.
         if (vm.pairing.value != null) askForNotifications()
-        setContent { HermesTheme { App() } }
+        setContent { HermesTheme { Surface(color = MaterialTheme.colorScheme.background) { App() } } }
     }
 
     /** Android 13+ gates notifications behind a runtime permission; below that they are on. */
@@ -101,7 +106,7 @@ class MainActivity : ComponentActivity() {
         intent?.getStringExtra(Notifier.EXTRA_OPEN_SESSION)?.let { sid ->
             intent.removeExtra(Notifier.EXTRA_OPEN_SESSION)
             vm.openSession(sid)
-            openAgentTab.value = true
+            showChat.value = true
         }
         val data = intent?.data ?: return
         if (data.scheme == "hermesremote") {
@@ -118,22 +123,25 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun App() {
         val pairing by vm.pairing.collectAsState()
-        if (pairing == null) {
-            Scaffold { pad ->
-                Box(Modifier.padding(pad)) {
-                    PairScreen(pairUri.value, onScan = ::scan, onPair = {
-                        vm.pair(it).also { err ->
-                            if (err == null) {
-                                pairUri.value = null
-                                askForNotifications()
-                            }
+        AnimatedContent(pairing != null, transitionSpec = { fadeIn(tween(300)) togetherWith fadeOut(tween(200)) }, label = "root") { paired ->
+            if (!paired) {
+                PairScreen(pairUri.value, onScan = ::scan, onPair = {
+                    vm.pair(it).also { err ->
+                        if (err == null) {
+                            pairUri.value = null
+                            askForNotifications()
                         }
-                    })
-                }
+                    }
+                })
+            } else {
+                PairedApp()
             }
-            return
         }
+    }
 
+    @Composable
+    private fun PairedApp() {
+        val pairing by vm.pairing.collectAsState()
         val chat by vm.chat.collectAsState()
         val sessions by vm.sessions.collectAsState()
         val system by vm.system.collectAsState()
@@ -146,73 +154,87 @@ class MainActivity : ComponentActivity() {
         val openModelPicker by vm.openModelPicker.collectAsState()
         val update by vm.update.collectAsState()
         val toast by vm.toast.collectAsState()
-        var tab by rememberSaveable { mutableStateOf(Tab.AGENT) }
-        if (openAgentTab.value) { tab = Tab.AGENT; openAgentTab.value = false }
+
+        var page by rememberSaveable { mutableStateOf(Page.CHAT) }
+        val drawer = rememberDrawerState(DrawerValue.Closed)
+        val scope = rememberCoroutineScope()
         val snack = remember { SnackbarHostState() }
         LaunchedEffect(toast) { toast?.let { snack.showSnackbar(it); vm.consumeToast() } }
+        if (showChat.value) { page = Page.CHAT; showChat.value = false; scope.launch { drawer.close() } }
 
-        val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 720
+        val wide = LocalConfiguration.current.screenWidthDp >= 720
+        val health = linkHealth(conn, system.error != null)
         val activeRunSession = chat.sessionId.takeIf { chat.busy }
         val desktopOk = system.components.firstOrNull { it.key == "desktop" }?.ok
 
-        val agent: @Composable () -> Unit = {
-            AgentScreen(chat, vm::send, vm::stop, vm::steer, vm::answerApproval,
-                models, choice, vm::loadModels, vm::chooseModel, vm::togglePin, vm::setDraft,
-                reasoning, vm::setReasoning, commands, vm::loadCommands, openModelPicker, vm::modelPickerOpened)
-        }
-        val sessionList: @Composable (Boolean) -> Unit = { switchTab ->
-            SessionsScreen(sessions, chat.sessionId, activeRunSession,
-                onOpen = { vm.openSession(it); if (switchTab) tab = Tab.AGENT },
-                onRefresh = vm::refreshSessions, onLoadMore = vm::loadMoreSessions,
-                onRename = vm::rename, onDelete = vm::delete, onNewChat = { vm.newChat(); tab = Tab.AGENT })
+        fun go(p: Page) {
+            page = p
+            if (p == Page.SETTINGS) vm.refreshStatus()
+            scope.launch { drawer.close() }
         }
 
-        Scaffold(
-            snackbarHost = { SnackbarHost(snack) },
-            bottomBar = {
-                if (!wide) NavigationBar {
-                    Tab.entries.forEach { t ->
-                        NavigationBarItem(selected = tab == t, onClick = {
-                            tab = t
-                            if (t == Tab.SESSIONS) vm.refreshSessions()
-                            if (t == Tab.SYSTEM) vm.refreshStatus()
-                        }, icon = { Icon(icon(t.path), t.label) }, label = { Text(t.label, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) })
+        BackHandler(enabled = drawer.isOpen) { scope.launch { drawer.close() } }
+        BackHandler(enabled = !drawer.isOpen && page != Page.CHAT) { page = Page.CHAT }
+
+        val sessionActions = SessionActions(
+            open = { vm.openSession(it); go(Page.CHAT) },
+            refresh = vm::refreshSessions,
+            loadMore = vm::loadMoreSessions,
+            rename = vm::rename,
+            delete = vm::delete,
+            setPinned = vm::setPinned,
+            newChat = { vm.newChat(); go(Page.CHAT) },
+            openSettings = { go(Page.SETTINGS) },
+            openDesktop = { go(Page.DESKTOP) },
+        )
+        val chatActions = ChatActions(
+            send = vm::send, stop = vm::stop, steer = vm::steer, approve = vm::answerApproval, draft = vm::setDraft,
+            togglePin = vm::togglePin, newChat = vm::newChat,
+            openDrawer = { vm.refreshSessions(); scope.launch { drawer.open() } },
+            openSettings = { go(Page.SETTINGS) },
+            loadModels = vm::loadModels, chooseModel = vm::chooseModel, setReasoning = vm::setReasoning,
+            loadCommands = vm::loadCommands, modelPickerOpened = vm::modelPickerOpened,
+        )
+        val settingsActions = SettingsActions(
+            refresh = vm::refreshStatus, unpair = vm::unpair, setApprovalMode = vm::setApprovalMode,
+            useTransport = vm::useTransport, useAuto = vm::useAutoTransport,
+            checkUpdate = { vm.checkForUpdate() }, installUpdate = vm::installUpdate,
+            openDesktop = { go(Page.DESKTOP) },
+        )
+
+        val content: @Composable () -> Unit = {
+            Box(Modifier.fillMaxSize()) {
+                AnimatedContent(page, transitionSpec = {
+                    val forward = targetState.ordinal > initialState.ordinal
+                    val spec = tween<IntOffset>(320, easing = FastOutSlowInEasing)
+                    (slideInHorizontally(spec) { if (forward) it / 3 else -it / 3 } + fadeIn(tween(260))) togetherWith
+                        (slideOutHorizontally(spec) { if (forward) -it / 4 else it / 4 } + fadeOut(tween(180)))
+                }, label = "page") { p ->
+                    when (p) {
+                        Page.CHAT -> ChatScreen(chat, health, models, choice, reasoning, commands, openModelPicker,
+                            showMenuButton = !wide, actions = chatActions)
+                        Page.SETTINGS -> SettingsScreen(system, pairing, conn, update, settingsActions, onBack = { page = Page.CHAT })
+                        Page.DESKTOP -> DesktopScreen(desktop, desktopOk, vm::loadDesktop, onBack = { page = Page.CHAT })
                     }
                 }
-            },
-        ) { pad ->
-            if (wide) {
-                Row(Modifier.fillMaxSize().padding(pad)) {
-                    NavigationRail {
-                        Tab.entries.filter { it != Tab.SESSIONS }.forEach { t ->
-                            NavigationRailItem(selected = tab == t || (tab == Tab.SESSIONS && t == Tab.AGENT), onClick = {
-                                tab = t
-                                if (t == Tab.SYSTEM) vm.refreshStatus()
-                            }, icon = { Icon(icon(t.path), t.label) }, label = { Text(t.label, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) })
-                        }
-                    }
-                    when (tab) {
-                        Tab.AGENT, Tab.SESSIONS -> {
-                            Box(Modifier.width(320.dp).fillMaxHeight()) { sessionList(false) }
-                            VerticalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
-                            Box(Modifier.weight(1f)) { agent() }
-                        }
-                        Tab.DESKTOP -> DesktopScreen(desktop, desktopOk, vm::loadDesktop)
-                        Tab.SYSTEM -> SystemScreen(system, pairing, vm::refreshStatus, vm::unpair, vm::setApprovalMode, conn, vm::useTransport, vm::useAutoTransport,
-                            update, { vm.checkForUpdate() }, vm::installUpdate)
-                    }
-                }
-            } else {
-                Box(Modifier.fillMaxSize().padding(pad)) {
-                    when (tab) {
-                        Tab.AGENT -> agent()
-                        Tab.SESSIONS -> sessionList(true)
-                        Tab.DESKTOP -> DesktopScreen(desktop, desktopOk, vm::loadDesktop)
-                        Tab.SYSTEM -> SystemScreen(system, pairing, vm::refreshStatus, vm::unpair, vm::setApprovalMode, conn, vm::useTransport, vm::useAutoTransport,
-                            update, { vm.checkForUpdate() }, vm::installUpdate)
-                    }
-                }
+                SnackbarHost(snack, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 72.dp))
             }
+        }
+
+        if (wide) {
+            Row(Modifier.fillMaxSize()) {
+                Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.width(320.dp).fillMaxHeight()) {
+                    SessionsPane(sessions, chat.sessionId, activeRunSession, sessionActions)
+                }
+                VerticalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                Box(Modifier.weight(1f)) { content() }
+            }
+        } else {
+            ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = page == Page.CHAT || drawer.isOpen, drawerContent = {
+                ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.width(320.dp)) {
+                    SessionsPane(sessions, chat.sessionId, activeRunSession, sessionActions)
+                }
+            }) { content() }
         }
     }
 }
