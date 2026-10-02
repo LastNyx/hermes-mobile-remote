@@ -212,6 +212,35 @@ def _bridge_urls(cfg: Config) -> list[str]:
     return urls
 
 
+def _pairing_warnings(cfg: Config, urls: list[str]) -> list[str]:
+    """Reasons the address in the pairing code may be unreachable from the phone.
+
+    Printed before the QR, because "the app says it cannot reach the PC" is the usual first
+    outcome and it is nearly always one of these two.
+    """
+    from . import firewall
+
+    out: list[str] = []
+    lan = [u for u in urls if u.startswith("https://")]  # LAN entries are HTTPS; tailnet is HTTP
+    if not lan and cfg.lan:
+        out.append("No trusted local network, so the code points at Tailscale only. The phone can "
+                   "only use it with Tailscale installed and logged into the same tailnet.\n"
+                   f"    Fix: hermes-remote-bridge trust   (on your home or office Wi-Fi)")
+    if lan:
+        state = firewall.state(cfg.port)
+        if state.active and state.port_open is False:
+            out.append(f"{state.kind} firewall is blocking TCP {cfg.port}, so nothing on this network "
+                       "can reach the bridge. This is on by default on Windows.\n"
+                       f"    Fix: hermes-remote-bridge firewall   (asks first)")
+        elif state.active and state.port_open is None:
+            out.append(f"{state.kind} firewall is active and I cannot read its rules. If the app cannot "
+                       f"reach the PC, open TCP {cfg.port} from your local network:\n"
+                       f"    Fix: hermes-remote-bridge firewall")
+        out.append("The phone must be on the SAME Wi-Fi as this PC, not on mobile data or a different "
+                   "network. Guest Wi-Fi often blocks device-to-device traffic.")
+    return out
+
+
 def _show_qr(uri: str, cfg: Config) -> bool:
     """Show the pairing QR. Returns True when it was opened as an image file.
 
@@ -265,12 +294,39 @@ def cmd_pair(cfg: Config, args: argparse.Namespace) -> None:
         print(f"Paired {device.name} ({device.id}); QR written to {args.qr_png} (delete it after scanning)")
         return
     print(f"Paired device {device.name!r} (id {device.id}).")
+    warnings = [] if args.url else _pairing_warnings(cfg, urls)
+    if warnings:
+        print("\nBEFORE you scan, check this:")
+        for w in warnings:
+            print(f"  * {w}")
+        print()
     print("Scan this QR code in the Hermes Remote app. It is shown ONCE; the token is not stored.\n")
     shown_as_image = _show_qr(uri, cfg)
     print(f"\nManual entry -> URL: {urls[0]}\n                 Token: {token}\n")
     if shown_as_image:
         print("The QR code was opened as a picture. Close it and delete it once the app has paired.")
     print(f"Revoke any time: hermes-remote-bridge revoke {device.name!r}")
+    _confirm_reachable(urls[0], cfg)
+
+
+def _confirm_reachable(url: str, cfg: Config) -> None:
+    """Try the address in the pairing code, so a blocked port shows up here and not only on the phone."""
+    import ssl
+    import urllib.error
+    import urllib.request
+
+    try:
+        ctx = ssl.create_default_context()  # the certificate is self-signed: expected to fail here
+        with urllib.request.urlopen(url + "/v1/me", timeout=5, context=ctx) as r:
+            print(f"Reachable: {url} (HTTP {r.status})")
+            return
+    except urllib.error.HTTPError as exc:
+        # Any HTTP answer means the port is open and something is listening. 401 is correct.
+        print(f"Reachable: {url} (HTTP {exc.code})")
+        return
+    except Exception as exc:  # noqa: BLE001 - the point is to report whatever went wrong
+        print(f"NOT reachable from this PC: {url} ({exc}).")
+        print("  The phone will not reach it either. Run: hermes-remote-bridge doctor")
 
 
 def cmd_revoke(cfg: Config, args: argparse.Namespace) -> None:
