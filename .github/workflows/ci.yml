@@ -59,7 +59,11 @@ jobs:
         run: |
           uv run hermes-remote-bridge devices
           uv run hermes-remote-bridge trust --list
-          uv run hermes-remote-bridge doctor; exit 0
+          # Doctor exits 1 here (no Hermes on a runner) but must still print; a crash has "error:".
+          $out = uv run hermes-remote-bridge doctor 2>&1 | Out-String
+          Write-Host $out
+          if ($out -match 'Traceback|error:') { exit 1 }
+          exit 0
       - name: Installer registers and starts the task
         shell: pwsh
         working-directory: .
