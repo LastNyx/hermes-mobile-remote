@@ -310,13 +310,30 @@ def cmd_pair(cfg: Config, args: argparse.Namespace) -> None:
 
 
 def _confirm_reachable(url: str, cfg: Config) -> None:
-    """Try the address in the pairing code, so a blocked port shows up here and not only on the phone."""
+    """Try the address in the pairing code, so a blocked port shows up here and not only on the phone.
+
+    On the LAN this is HTTPS with the bridge's own self-signed certificate, so we load that
+    certificate as the trust anchor instead of the system store: a plain verification failure would
+    be reported as "unreachable" when the port is in fact open.
+    """
     import ssl
     import urllib.error
     import urllib.request
 
+    ctx = ssl.create_default_context()
+    if url.startswith("https://"):
+        # The certificate names no IP and is not signed by anyone, so the app pins its fingerprint
+        # instead of trusting a CA. Check it the same way here, or every healthy bridge looks dead.
+        # check_hostname is off because there is no hostname to match.
+        try:
+            cert_path, _key_path = ensure_identity(cfg.tls_dir)
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_REQUIRED
+            ctx.load_verify_locations(cadata=cert_path.read_text())
+        except (OSError, ssl.SSLError):
+            ctx = ssl.create_default_context()
     try:
-        ctx = ssl.create_default_context()  # the certificate is self-signed: expected to fail here
         with urllib.request.urlopen(url + "/v1/me", timeout=5, context=ctx) as r:
             print(f"Reachable: {url} (HTTP {r.status})")
             return
