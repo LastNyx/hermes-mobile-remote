@@ -78,6 +78,26 @@ jobs:
           if (-not $task) { exit 1 }
           ./install.ps1 -Uninstall
           if (Get-ScheduledTask -TaskName 'Hermes Mobile Remote' -ErrorAction SilentlyContinue) { exit 1 }
+      - name: Installer copes with uv missing (what a fresh PC looks like)
+        shell: pwsh
+        working-directory: .
+        run: |
+          $env:HERMES_HOME = Join-Path $env:RUNNER_TEMP 'hermes'
+          $uvDir = Split-Path (Get-Command uv).Source
+          $env:Path = ($env:Path -split ';' | Where-Object { $_ -and ($_ -ne $uvDir) }) -join ';'
+          if (Get-Command uv -ErrorAction SilentlyContinue) { Write-Error 'test setup: uv is still on PATH'; exit 1 }
+
+          # 1. Unattended and no -InstallUv: must stop with a clear message, not a stack trace.
+          $out = (& pwsh -NoProfile -File ./install.ps1 -Unattended 2>&1 | Out-String)
+          Write-Host $out
+          if ($LASTEXITCODE -eq 0 -or $out -notmatch 'uv is required') { Write-Error 'expected a clear uv-is-required stop'; exit 1 }
+
+          # 2. -InstallUv: must install uv, find it in the same session and finish the install.
+          ./install.ps1 -Unattended -InstallUv
+          if (-not (Get-Command uv -ErrorAction SilentlyContinue)) { Write-Error 'uv still not found after -InstallUv'; exit 1 }
+          Start-Sleep -Seconds 5
+          (Get-ScheduledTask -TaskName 'Hermes Mobile Remote').State
+          ./install.ps1 -Uninstall
 
   android:
     runs-on: ubuntu-latest

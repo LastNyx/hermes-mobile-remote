@@ -4,6 +4,7 @@
 
 .DESCRIPTION
     .\install.ps1              install or update, start the task, offer firewall + pairing
+    .\install.ps1 -InstallUv   install uv without asking if it is missing
     .\install.ps1 -Unattended  never prompt (answers "no" to every question; for CI)
     .\install.ps1 -Uninstall   stop and remove the task and the firewall rule
                                (keeps paired devices and config)
@@ -13,10 +14,10 @@
         powershell -ExecutionPolicy Bypass -File .\install.ps1
 
     EXPERIMENTAL: written against Microsoft's documented cmdlets, not yet run on real hardware by
-    its author. See docs\WINDOWS.md for what is verified and what is not.
+    its author. See docs\PLATFORMS.md for what is verified and what is not.
 #>
 [CmdletBinding()]
-param([switch]$Uninstall, [switch]$Unattended)
+param([switch]$Uninstall, [switch]$Unattended, [switch]$InstallUv)
 
 $ErrorActionPreference = 'Stop'
 $Repo     = $PSScriptRoot
@@ -33,6 +34,32 @@ function Info($t) { Write-Host "  $t" }
 function Die($t)  { Write-Host "Error: $t" -ForegroundColor Red; exit 1 }
 function Ask($q)  { if ($Unattended) { return $false }; $a = Read-Host "  $q [Y/n]"; return ($a -eq '' -or $a -match '^[Yy]') }
 
+# A fresh install of uv (or anything else) edits the PATH stored in the registry, which the running
+# PowerShell never re-reads. Pull the persistent entries into this session so the next command
+# can find it without asking the user to reopen the terminal.
+function Update-SessionPath {
+    $have = @($env:Path -split ';')
+    $stored = @([Environment]::GetEnvironmentVariable('Path', 'Machine'),
+                [Environment]::GetEnvironmentVariable('Path', 'User'),
+                (Join-Path $HOME '.local\bin'), (Join-Path $HOME '.cargo\bin')) -join ';'
+    foreach ($p in ($stored -split ';')) {
+        if ($p -and ($have -notcontains $p)) { $env:Path += ";$p" }
+    }
+}
+
+function Install-Uv {
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Info 'Installing uv with winget...'
+        try { winget install --id=astral-sh.uv -e --accept-source-agreements --accept-package-agreements | Out-Host } catch { }
+        Update-SessionPath
+        if (Get-Command uv -ErrorAction SilentlyContinue) { return $true }
+    }
+    Info 'Installing uv with the official installer (astral.sh)...'
+    try { Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression } catch { Info "That failed: $_" }
+    Update-SessionPath
+    return [bool](Get-Command uv -ErrorAction SilentlyContinue)
+}
+
 if ($Uninstall) {
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
@@ -48,8 +75,17 @@ if ($Uninstall) {
 
 Bold '1/5 Checking requirements'
 if ($PSVersionTable.PSVersion.Major -lt 5) { Die 'PowerShell 5.1 or newer is required.' }
+Update-SessionPath
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-    Die 'uv is required: https://docs.astral.sh/uv/getting-started/installation/  (winget install --id=astral-sh.uv)'
+    Info 'uv (the Python package manager the bridge is installed with) was not found.'
+    if ($InstallUv -or (Ask 'Install it now? (no admin needed)')) {
+        if (-not (Install-Uv)) {
+            Die 'Could not install uv. Install it yourself from https://docs.astral.sh/uv/getting-started/installation/ , open a NEW PowerShell window, and run this again.'
+        }
+        Info 'uv installed.'
+    } else {
+        Die 'uv is required. Run again with -InstallUv, or install it from https://docs.astral.sh/uv/getting-started/installation/ (winget install --id=astral-sh.uv) and open a NEW PowerShell window.'
+    }
 }
 if (-not (Test-Path $HermesHome)) {
     Die "Hermes Agent not found at $HermesHome. Install Hermes first: https://hermes-agent.nousresearch.com"
