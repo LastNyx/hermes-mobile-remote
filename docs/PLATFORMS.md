@@ -29,7 +29,7 @@ All of it lives in `bridge/hermes_remote_bridge/host/`, one module per OS behind
 |---|---|---|
 | Config and state | `~/.config/hermes-remote`, `~/.local/state/hermes-remote` (XDG) | `%LOCALAPPDATA%\hermes-remote\config`, `...\state` |
 | Hermes location | `~/.hermes` | `%LOCALAPPDATA%\hermes` (Hermes' own default); `HERMES_HOME` overrides both |
-| Background service | systemd user unit, restarts on exit 75 | Scheduled Task running `bridge/windows/run-bridge.ps1`, which restarts on exit 75 |
+| Background service | systemd user unit, restarts on exit 75 | Scheduled Task running `bridge/windows/run-bridge.ps1`, which restarts it on exit 75 at once and after a crash or kill within seconds (backing off if it keeps failing) |
 | Default route, router MAC | `/proc/net/route`, `/proc/net/arp` | `Get-NetRoute`, `Get-NetNeighbor` |
 | Network name | NetworkManager (`nmcli`) | `Get-NetConnectionProfile` (the SSID on Wi-Fi) |
 | Tailscale | LocalAPI unix socket | `tailscale status --json` / `whois --json` (no socket exists) |
