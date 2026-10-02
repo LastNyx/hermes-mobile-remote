@@ -11,6 +11,13 @@ instead of `journalctl`, and `hermes-remote-bridge firewall` opens Windows Defen
 (one UAC prompt). There is no "trust this network?" popup: run `hermes-remote-bridge trust`.
 WSL2 cannot work; see [PLATFORMS.md](PLATFORMS.md).
 
+**Windows: "running scripts is disabled on this system".** Run the installer as
+`powershell -ExecutionPolicy Bypass -File .\install.ps1`. That affects only that run.
+
+**Windows: "uv is required".** Older copies of the installer stopped here. Pull the latest, or run
+`winget install --id=astral-sh.uv`, open a *new* PowerShell window (the old one does not see the
+new PATH), and run the installer again.
+
 **`forbidden_network` / "The PC doesn't serve this network."**
 
 The bridge only serves loopback, Tailscale, and a Wi-Fi network you marked trusted. On the PC:

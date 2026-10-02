@@ -148,14 +148,20 @@ is not verified. Use native Windows, not WSL2.
 In PowerShell, from a normal (non-admin) window:
 
 ```powershell
-winget install --id=astral-sh.uv       # once, if you do not have uv
 git clone https://github.com/nideta231/hermes-mobile-remote.git
 cd hermes-mobile-remote
-.\install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-If PowerShell refuses to run the script, run it as
-`powershell -ExecutionPolicy Bypass -File .\install.ps1`.
+`-ExecutionPolicy Bypass` applies to that one run only. A stock Windows blocks unsigned scripts
+("running scripts is disabled on this system"), and this avoids changing the policy for the whole
+account. If you downloaded a ZIP instead of cloning, Windows also marks the files as blocked; run
+`Get-ChildItem -Recurse | Unblock-File` first.
+
+If `uv` (the Python package manager the bridge is installed with) is missing, the installer asks
+and installs it for you, with `winget` or the official installer, no admin needed. Pass `-InstallUv`
+to skip the question. It then finds `uv` in the same window, so you do not have to reopen
+PowerShell.
 
 The installer does the same five things as the Linux one:
 
