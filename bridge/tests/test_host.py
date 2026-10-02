@@ -251,9 +251,12 @@ def test_pairing_warns_when_only_tailscale_is_available(monkeypatch):
     assert any("Tailscale" in w for w in warnings)
 
 
-def test_pairing_is_quiet_when_nothing_is_wrong(monkeypatch):
+def test_pairing_only_nags_about_the_wifi_when_nothing_is_wrong(monkeypatch):
+    """With the port open and the network trusted, the only advice left is "be on the same Wi-Fi"."""
     from hermes_remote_bridge import cli, firewall
     monkeypatch.setattr(cli, "serving_lan_ips", lambda enabled, trust: ["192.168.1.10"])
     monkeypatch.setattr(cli, "sync_tailscale_ips", lambda: ([], None))
     monkeypatch.setattr(firewall, "state", lambda port: firewall.FirewallState("windows", True, True))
-    assert cli._pairing_warnings(Config(), ["https://192.168.1.10:8650"]) == []
+    warnings = cli._pairing_warnings(Config(), ["https://192.168.1.10:8650"])
+    assert not any("blocking" in w or "Tailscale" in w for w in warnings)
+    assert len(warnings) == 1 and "SAME Wi-Fi" in warnings[0]
