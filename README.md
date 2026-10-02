@@ -35,7 +35,8 @@ install.cmd           # Windows 10/11 (experimental); or double-click it
 macOS is not supported yet. See [docs/PLATFORMS.md](docs/PLATFORMS.md).
 
 On the phone: install the APK from [Releases](https://github.com/nideta231/hermes-mobile-remote/releases/latest),
-then run `bridge/.venv/bin/hermes-remote-bridge pair phone` on the PC and scan the QR code in the app.
+then pair it on the PC: `bridge/.venv/bin/hermes-remote-bridge pair phone` on Linux, or double-click
+`pair.cmd` on Windows, and scan the QR code in the app.
 
 Full walkthrough, including what the installer changes and how to remove it:
 **[docs/INSTALL.md](docs/INSTALL.md)**.
