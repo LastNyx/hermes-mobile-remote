@@ -318,8 +318,10 @@ private fun MessageList(state: ChatState) {
             contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(state.items, key = { it.key }) { item ->
-                Box(Modifier.animateItem(fadeInSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                    placementSpec = spring(stiffness = Spring.StiffnessMediumLow))) {
+                // Placement animates; appearance does not. The fade springs made the chat flash
+                // in and out whenever items re-entered composition (keyboard show/hide, sending,
+                // streaming), which read as the whole conversation fading.
+                Box(Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)) {
                     when (item) {
                         is ChatItem.User -> UserBubble(item)
                         is ChatItem.Assistant -> AssistantBlock(item)
@@ -331,7 +333,7 @@ private fun MessageList(state: ChatState) {
                 }
             }
             if (thinking) item(key = "thinking") {
-                Row(Modifier.animateItem().padding(start = 6.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) { TypingDots(Gold) }
+                Row(Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null).padding(start = 6.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) { TypingDots(Gold) }
             }
         }
         AnimatedVisibility(!follow, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
