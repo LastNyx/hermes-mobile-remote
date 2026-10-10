@@ -1,11 +1,13 @@
 """`hermes-remote-bridge doctor`: explain why the phone can't connect, one check at a time."""
 from __future__ import annotations
 
+import json
 import sys
 import urllib.request
 
 from . import firewall
-from .config import Config, read_hermes_api_key
+from .backend import ledger_candidates
+from .config import Config
 from .devices import DeviceStore
 from .host import host
 from .network import TrustStore, current_network, serving_lan_ips
@@ -27,18 +29,19 @@ def _marks() -> dict[str, str]:
 
 
 def _check_hermes(cfg: Config) -> tuple[str, str]:
-    try:
-        key = read_hermes_api_key(cfg.hermes_env)
-    except (OSError, RuntimeError):
-        return FAIL, (f"API_SERVER_KEY is not set in {cfg.hermes_env}. "
-                      "Enable the Hermes API server (see README, step 1).")
-    req = urllib.request.Request(f"{cfg.hermes_url}/health", headers={"Authorization": f"Bearer {key}"})
-    try:
-        with urllib.request.urlopen(req, timeout=3) as r:
-            return OK, f"Hermes API server answers at {cfg.hermes_url} (HTTP {r.status})"
-    except Exception as e:  # noqa: BLE001 - any failure means "not reachable", report it
-        return FAIL, (f"Hermes API server not reachable at {cfg.hermes_url} ({e}). "
-                      "Is the Hermes gateway running? Try: hermes gateway status")
+    """The phone drives the same `hermes serve` the desktop app uses; find it."""
+    for port in ledger_candidates(cfg.hermes_home / "spawn-ledger.json"):
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/status", timeout=3) as r:
+                version = json.loads(r.read() or b"{}").get("version")
+            return OK, f"Hermes is running on port {port}{f' (v{version})' if version else ''}; the phone shares it"
+        except Exception:  # noqa: BLE001 - a stale ledger row; try the next
+            continue
+    if not cfg.hermes_python.exists():
+        return FAIL, f"Hermes is not installed at {cfg.hermes_root}"
+    if cfg.start_hermes:
+        return OK, "Hermes is not running now; the bridge starts it when the phone connects"
+    return WARN, "Hermes is not running and start_hermes = false; open the Hermes desktop app first"
 
 
 def _check_service(cfg: Config) -> tuple[str, str]:

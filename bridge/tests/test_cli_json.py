@@ -25,7 +25,8 @@ def _config(tmp_path) -> Path:
         f"devices_file = '{(tmp_path / 'devices.json').as_posix()}'",
         f"trust_file = '{(tmp_path / 'networks.json').as_posix()}'",
         f"audit_log = '{(tmp_path / 'audit.log').as_posix()}'",
-        f"hermes_env = '{(tmp_path / 'missing.env').as_posix()}'",
+        f"hermes_home = '{(tmp_path / 'no-hermes').as_posix()}'",
+        f"hermes_python = '{(tmp_path / 'no-hermes' / 'python').as_posix()}'",
         "lan = false",
     ]) + "\n")
     return path

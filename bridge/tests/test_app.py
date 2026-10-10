@@ -1,13 +1,22 @@
 import json
 import os
+import threading
+import time
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
+from websockets.sync.server import serve
 
 from hermes_remote_bridge.app import create_app
-from hermes_remote_bridge.config import Config, read_hermes_api_key
+from hermes_remote_bridge.backend import Backend, BackendUnavailable, ledger_candidates
+from hermes_remote_bridge.config import Config
 from hermes_remote_bridge.devices import DeviceStore
+from hermes_remote_bridge.relay import check_frame
 from hermes_remote_bridge.tailnet import is_loopback, is_tailnet_ip
+
+PHONE = "100.64.0.10"
 
 
 class FakeTailnet:
@@ -28,52 +37,38 @@ class FakeTailnet:
         pass
 
 
-class TailscaleDown:
-    """What TailnetClient looks like when the daemon is down or the CLI is absent."""
+class FakeLocator:
+    """Stands in for BackendLocator: a fixed backend, or none at all."""
 
-    async def whois(self, addr):
-        return None
+    def __init__(self, backend: Backend | None = Backend(1234, "tok")):
+        self.backend = backend
+        self.forgotten = 0
 
-    async def status_self_ips(self):
-        raise RuntimeError("tailscale not running")
+    async def get(self, *, start: bool = True):
+        if self.backend is None:
+            raise BackendUnavailable("Hermes is not running on this PC")
+        return self.backend
 
-    async def status(self):
-        raise RuntimeError("tailscale not running")
-
-    async def aclose(self):
-        pass
-
-
-class FakeHermes:
-    def __init__(self, responses=None):
-        self.calls = []
-        self.responses = responses or {}
-
-    async def health(self):
-        return {"status": "ok", "version": "1.2.3", "gateway_state": "running",
-                "readiness": {"status": "ok", "checks": {}}}
-
-    async def request(self, method, path, **kw):
-        self.calls.append((method, path, kw))
-        payload = self.responses.get((method, path))
-        if payload is None:
-            payload = self.responses.get(path)
-        class R:
-            def json(self_inner):
-                return payload if payload is not None else {"object": "list", "data": [], "path": path}
-        return R()
-
-    def sent_json(self, method, path):
-        return [kw["json"] for m, p, kw in self.calls if m == method and p == path][-1]
-
-    async def open_run_events(self, run_id):
-        raise RuntimeError("not used")
-
-    async def run_status(self, run_id):
-        return None
+    def forget(self, backend=None):
+        self.forgotten += 1
 
     async def aclose(self):
         pass
+
+
+def fake_http(responses=None, calls=None):
+    """httpx client whose transport answers like `hermes serve`'s REST API."""
+    responses = responses or {}
+
+    def handler(request: httpx.Request):
+        if calls is not None:
+            calls.append(request)
+        if request.headers.get("X-Hermes-Session-Token") != "tok":
+            return httpx.Response(401, json={"detail": "Unauthorized"})
+        body = responses.get((request.method, request.url.path))
+        return httpx.Response(200, json=body if body is not None else {})
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
 @pytest.fixture
@@ -81,14 +76,20 @@ def env(tmp_path):
     cfg = Config(devices_file=tmp_path / "devices.json", audit_log=tmp_path / "audit.log")
     store = DeviceStore(cfg.devices_file)
     _, token = store.pair("phone")
-    hermes = FakeHermes()
-    tailnet = FakeTailnet({"100.64.0.10": "me@example.com", "100.99.0.1": "stranger@example.com"})
-    app = create_app(cfg, hermes=hermes, tailnet=tailnet, devices=store, owner_login="me@example.com")
-    return cfg, store, token, hermes, app
+    calls = []
+    http = fake_http({("GET", "/api/sessions"): {"sessions": [{"id": "s1", "pinned": True}], "total": 1,
+                                                 "limit": 40, "offset": 0}}, calls)
+    tailnet = FakeTailnet({PHONE: "me@example.com", "100.99.0.1": "stranger@example.com"})
+    app = create_app(cfg, locator=FakeLocator(), http=http, tailnet=tailnet, devices=store, owner_login="me@example.com")
+    return cfg, store, token, calls, app
 
 
 def client(app, ip):
     return TestClient(app, client=(ip, 50000))
+
+
+def auth(token):
+    return {"Authorization": f"Bearer {token}"}
 
 
 def test_ip_classification():
@@ -99,186 +100,79 @@ def test_ip_classification():
 
 def test_lan_peer_rejected_even_with_valid_token(env):
     _, _, token, _, app = env
-    r = client(app, "192.168.1.50").get("/v1/me", headers={"Authorization": f"Bearer {token}"})
+    r = client(app, "192.168.1.50").get("/v1/me", headers=auth(token))
     assert r.status_code == 403 and r.json()["error"]["code"] == "forbidden_network"
 
 
 def test_foreign_tailnet_identity_rejected(env):
     _, _, token, _, app = env
-    r = client(app, "100.99.0.1").get("/v1/me", headers={"Authorization": f"Bearer {token}"})
+    r = client(app, "100.99.0.1").get("/v1/me", headers=auth(token))
     assert r.status_code == 403 and r.json()["error"]["code"] == "forbidden_peer"
 
 
 def test_token_required_and_revocation_is_live(env):
     _, store, token, _, app = env
-    c = client(app, "100.64.0.10")
+    c = client(app, PHONE)
     assert c.get("/v1/me").status_code == 401
-    assert c.get("/v1/me", headers={"Authorization": "Bearer hrb_wrong"}).status_code == 401
-    ok = c.get("/v1/me", headers={"Authorization": f"Bearer {token}"})
-    assert ok.status_code == 200 and ok.json()["device"]["name"] == "phone"
-    # revoke through a separate store instance, as the CLI does
-    DeviceStore(store.path).revoke("phone")
-    assert c.get("/v1/me", headers={"Authorization": f"Bearer {token}"}).status_code == 401
+    assert c.get("/v1/me", headers=auth("hrb_wrong")).status_code == 401
+    ok = c.get("/v1/me", headers=auth(token))
+    assert ok.status_code == 200 and ok.json()["device"]["name"] == "phone" and ok.json()["protocol"] == 2
+    DeviceStore(store.path).revoke("phone")  # a separate store instance, as the CLI does
+    assert c.get("/v1/me", headers=auth(token)).status_code == 401
 
 
 def test_device_file_stores_only_hash(env):
     cfg, _, token, _, _ = env
-    text = cfg.devices_file.read_text()
-    assert token not in text
+    assert token not in cfg.devices_file.read_text()
     if os.name == "posix":  # Windows has no mode bits; the user-profile ACL applies
         assert oct(os.stat(cfg.devices_file).st_mode & 0o777) == "0o600"
 
 
 def test_body_limit_and_validation(env):
     _, _, token, _, app = env
-    c = client(app, "100.64.0.10")
-    h = {"Authorization": f"Bearer {token}"}
-    big = c.post("/v1/sessions", headers={**h, "content-type": "application/json"},
-                 content=b'{"title":"' + b"x" * 1_100_000 + b'"}')
+    c = client(app, PHONE)
+    big = c.patch("/v1/sessions/s1", headers={**auth(token), "content-type": "application/json"},
+                  content=b'{"title":"' + b"x" * 1_100_000 + b'"}')
     assert big.status_code == 413
-    bad = c.post("/v1/runs", headers=h, json={"session_id": "s1", "input": ""})
-    assert bad.status_code == 422 and bad.json()["error"]["code"] == "invalid_request"
-    assert c.get("/v1/sessions/..%2Fetc", headers=h).status_code in (400, 404)
+    assert c.patch("/v1/sessions/s1", headers=auth(token), json={}).status_code == 400
+    assert c.patch("/v1/sessions/..%2Fetc", headers=auth(token), json={"pinned": True}).status_code in (400, 404)
 
 
-def test_session_delete_requires_confirmation(env):
-    _, _, token, hermes, app = env
-    c = client(app, "100.64.0.10")
-    h = {"Authorization": f"Bearer {token}"}
-    r = c.delete("/v1/sessions/api_1", headers=h)
-    assert r.status_code == 428
-    assert not any(m == "DELETE" for m, _, _ in hermes.calls)
-    assert c.delete("/v1/sessions/api_1?confirm=api_1", headers=h).status_code == 200
+def test_session_list_is_the_desktop_sidebar_query_with_the_backend_token(env):
+    _, _, token, calls, app = env
+    body = client(app, PHONE).get("/v1/sessions", headers=auth(token)).json()
+    assert body["sessions"] == [{"id": "s1", "pinned": True}]
+    req = calls[-1]
+    assert req.url.path == "/api/sessions" and req.url.port == 1234
+    assert req.headers["X-Hermes-Session-Token"] == "tok"
+    q = dict(req.url.params)
+    assert q["order"] == "recent" and q["archived"] == "exclude" and q["exclude_sources"] == "cron"
+
+
+def test_pin_passes_through_to_hermes(env):
+    _, _, token, calls, app = env
+    r = client(app, PHONE).patch("/v1/sessions/s1", headers=auth(token), json={"pinned": False})
+    assert r.status_code == 200
+    assert calls[-1].method == "PATCH" and json.loads(calls[-1].content) == {"pinned": False}
+
+
+def test_hermes_down_is_a_503_not_a_500(tmp_path):
+    cfg = Config(devices_file=tmp_path / "d.json", audit_log=tmp_path / "a.log")
+    store = DeviceStore(cfg.devices_file)
+    _, token = store.pair("phone")
+    app = create_app(cfg, locator=FakeLocator(None), http=fake_http(), tailnet=FakeTailnet({PHONE: "me@x"}),
+                     devices=store, owner_login="me@x")
+    c = client(app, PHONE)
+    r = c.get("/v1/sessions", headers=auth(token))
+    assert r.status_code == 503 and r.json()["error"]["code"] == "hermes_unavailable"
+    assert c.get("/v1/status", headers=auth(token)).json()["components"]["hermes"]["status"] == "down"
 
 
 def test_audit_log_has_no_tokens(env):
     cfg, _, token, _, app = env
-    client(app, "100.64.0.10").get("/v1/sessions", headers={"Authorization": f"Bearer {token}"})
+    client(app, PHONE).get("/v1/sessions", headers=auth(token))
     log = cfg.audit_log.read_text()
-    assert token not in log and '"device": "phone"' in log
-
-
-def test_read_hermes_api_key_takes_last(tmp_path):
-    p = tmp_path / ".env"
-    p.write_text("API_SERVER_KEY=old\nOTHER=1\nexport API_SERVER_KEY='new'\n")
-    assert read_hermes_api_key(p) == "new"
-
-
-CATALOG = {
-    # Real shape: `model` and `provider` are top-level alongside `providers`.
-    "model": "m/one",
-    "provider": "nous",
-    "providers": [
-        {"slug": "nous", "name": "Nous", "is_current": True, "authenticated": True, "source": "hermes",
-         "models": ["m/one", "m/two"], "unavailable_models": ["m/two"], "featured_models": ["m/one"]},
-        {"slug": "anthropic", "name": "Anthropic", "is_current": False, "authenticated": True, "source": "built-in",
-         "models": ["claude-x", "claude-y"], "unavailable_models": [], "featured_models": []},
-        {"slug": "openai-api", "name": "OpenAI", "is_current": False, "authenticated": False, "source": "canonical",
-         "models": ["gpt-x"], "unavailable_models": [], "featured_models": []},
-        {"slug": "empty", "name": "Empty", "is_current": False, "authenticated": True, "source": "built-in",
-         "models": [], "unavailable_models": [], "featured_models": []},
-    ],
-}
-
-
-def test_current_provider_survives_every_model_being_unavailable(tmp_path):
-    """Hermes' own provider can report all its models unavailable while a private alias runs.
-
-    The app must still be able to see (and keep using) the provider it is actually on.
-    """
-    raw = {"model": "stealth/space-bunny-alpha", "provider": "nous",
-           "providers": [{"slug": "nous", "name": "Nous", "is_current": True, "authenticated": True,
-                          "source": "hermes", "models": ["a/b", "c/d"],
-                          "unavailable_models": ["a/b", "c/d"], "featured_models": ["a/b"]}]}
-    cfg = Config(devices_file=tmp_path / "d.json", audit_log=tmp_path / "a.log")
-    store = DeviceStore(cfg.devices_file)
-    _, token = store.pair("phone")
-    app = create_app(cfg, hermes=FakeHermes({("GET", "/api/model/options"): raw}),
-                     tailnet=FakeTailnet({"100.64.0.10": "me@example.com"}), devices=store,
-                     owner_login="me@example.com")
-    body = client(app, "100.64.0.10").get("/v1/models",
-                                          headers={"Authorization": f"Bearer {token}"}).json()
-    nous = [p for p in body["providers"] if p["slug"] == "nous"][0]
-    assert body["current"] == {"model": "stealth/space-bunny-alpha", "provider": "nous"}
-    assert nous["current"] and nous["models"], "the provider in use must still be offered"
-    assert nous["featured"][0] == "stealth/space-bunny-alpha"
-
-
-def test_model_catalog_filters_unavailable_and_unauthenticated(tmp_path):
-    cfg = Config(devices_file=tmp_path / "d.json", audit_log=tmp_path / "a.log")
-    store = DeviceStore(cfg.devices_file)
-    _, token = store.pair("phone")
-    hermes = FakeHermes({("GET", "/api/model/options"): CATALOG})
-    app = create_app(cfg, hermes=hermes, tailnet=FakeTailnet({"100.64.0.10": "me@example.com"}),
-                     devices=store, owner_login="me@example.com")
-    r = client(app, "100.64.0.10").get("/v1/models", headers={"Authorization": f"Bearer {token}"})
-    assert r.status_code == 200
-    body = r.json()
-    assert body["current"] == {"model": "m/one", "provider": "nous"}
-    slugs = [p["slug"] for p in body["providers"]]
-    assert slugs == ["nous", "anthropic"]  # unauthenticated and model-less providers dropped
-    assert body["providers"][0]["models"] == ["m/one"]  # unavailable model removed
-    assert body["providers"][0]["current"] is True
-
-
-def test_run_forwards_model_override_only_when_given(tmp_path):
-    cfg = Config(devices_file=tmp_path / "d.json", audit_log=tmp_path / "a.log")
-    store = DeviceStore(cfg.devices_file)
-    _, token = store.pair("phone")
-    hermes = FakeHermes({("POST", "/v1/runs"): {"run_id": "run_1", "status": "started"}})
-    app = create_app(cfg, hermes=hermes, tailnet=FakeTailnet({"100.64.0.10": "me@example.com"}),
-                     devices=store, owner_login="me@example.com")
-    c = client(app, "100.64.0.10")
-    h = {"Authorization": f"Bearer {token}"}
-    c.post("/v1/runs", headers=h, json={"session_id": "s1", "input": "hi", "client_request_id": "req000001"})
-    assert hermes.sent_json("POST", "/v1/runs") == {"input": "hi", "session_id": "s1"}
-    c.post("/v1/runs", headers=h, json={"session_id": "s2", "input": "hi", "client_request_id": "req000002",
-                                        "model": "claude-x", "provider": "anthropic"})
-    assert hermes.sent_json("POST", "/v1/runs") == {"input": "hi", "session_id": "s2",
-                                                    "model": "claude-x", "provider": "anthropic"}
-
-
-def test_patch_session_passes_pin_and_rejects_empty(tmp_path):
-    cfg = Config(devices_file=tmp_path / "d.json", audit_log=tmp_path / "a.log")
-    store = DeviceStore(cfg.devices_file)
-    _, token = store.pair("phone")
-    hermes = FakeHermes({("PATCH", "/api/sessions/s1"): {"session": {"id": "s1", "pinned": True}}})
-    app = create_app(cfg, hermes=hermes, tailnet=FakeTailnet({"100.64.0.10": "me@example.com"}),
-                     devices=store, owner_login="me@example.com")
-    c = client(app, "100.64.0.10")
-    h = {"Authorization": f"Bearer {token}"}
-    r = c.patch("/v1/sessions/s1", headers=h, json={"pinned": False})
-    assert r.status_code == 200 and hermes.sent_json("PATCH", "/api/sessions/s1") == {"pinned": False}
-    assert c.patch("/v1/sessions/s1", headers=h, json={}).status_code == 400
-
-
-def test_sync_returns_only_messages_after_the_cursor(tmp_path):
-    cfg = Config(devices_file=tmp_path / "d.json", audit_log=tmp_path / "a.log")
-    store = DeviceStore(cfg.devices_file)
-    _, token = store.pair("phone")
-    rows = [{"id": str(i), "role": "user", "content": f"m{i}"} for i in range(5)]
-    hermes = FakeHermes({
-        ("GET", "/api/sessions/s1"): {"session": {"id": "s1", "message_count": 5, "pinned": True, "model": "m"}},
-        ("GET", "/api/sessions/s1/messages"): {"data": rows[3:]},
-    })
-    app = create_app(cfg, hermes=hermes, tailnet=FakeTailnet({"100.64.0.10": "me@example.com"}),
-                     devices=store, owner_login="me@example.com")
-    c = client(app, "100.64.0.10")
-    h = {"Authorization": f"Bearer {token}"}
-    r = c.get("/v1/sessions/s1/sync?since=3", headers=h)
-    assert r.status_code == 200
-    body = r.json()
-    assert [m["id"] for m in body["messages"]] == ["3", "4"]
-    assert body["cursor"] == 5 and body["changed"] is True and body["pinned"] is True
-    # at the head: nothing new, and no redundant message fetch
-    before = len(hermes.calls)
-    again = c.get("/v1/sessions/s1/sync?since=5", headers=h).json()
-    assert again["messages"] == [] and again["changed"] is False
-    assert len(hermes.calls) == before + 1  # only the session head, no messages call
-    # first sync of a long session hands back a bounded tail
-    c.get("/v1/sessions/s1/sync?limit=2", headers=h)
-    tail_call = next(kw for m, p, kw in hermes.calls if p.endswith("/messages"))
-    assert tail_call["params"]["limit"] == 2
+    assert token not in log and "tok" not in log.replace("token", "") and '"device": "phone"' in log
 
 
 def test_approval_mode_get_set_and_validation(tmp_path):
@@ -297,38 +191,160 @@ def test_approval_mode_get_set_and_validation(tmp_path):
             return "ok\n"
         raise AssertionError(argv)
 
-    app = create_app(cfg, hermes=FakeHermes(), tailnet=FakeTailnet({"100.64.0.10": "me@example.com"}),
+    app = create_app(cfg, locator=FakeLocator(), http=fake_http(), tailnet=FakeTailnet({PHONE: "me@example.com"}),
                      devices=store, owner_login="me@example.com", hermes_cli=fake_cli)
-    c = client(app, "100.64.0.10")
-    h = {"Authorization": f"Bearer {token}"}
-    assert c.get("/v1/settings/approvals", headers=h).json() == {"mode": "smart", "modes": ["manual", "smart", "off"]}
-    r = c.put("/v1/settings/approvals", headers=h, json={"mode": "off"})
+    c = client(app, PHONE)
+    assert c.get("/v1/settings/approvals", headers=auth(token)).json() == {"mode": "smart", "modes": ["manual", "smart", "off"]}
+    r = c.put("/v1/settings/approvals", headers=auth(token), json={"mode": "off"})
     assert r.status_code == 200 and r.json()["mode"] == "off" and state["mode"] == "off"
     assert ("config", "set", "approvals.mode", "off") in argv_seen
-    # Arbitrary values never reach the CLI.
     n = len(argv_seen)
-    assert c.put("/v1/settings/approvals", headers=h, json={"mode": "yolo; rm -rf"}).status_code == 400
-    assert len(argv_seen) == n
+    assert c.put("/v1/settings/approvals", headers=auth(token), json={"mode": "yolo; rm -rf"}).status_code == 400
+    assert len(argv_seen) == n  # arbitrary values never reach the CLI
     assert "approval_mode_changed" in (tmp_path / "a.log").read_text()
-    # Unauthenticated callers can't touch it.
     assert c.put("/v1/settings/approvals", json={"mode": "manual"}).status_code == 401
 
 
-def test_created_session_uses_a_desktop_visible_source(tmp_path):
-    """The desktop keeps api_server sessions out of its Sessions sidebar (they read as
-    Messaging), so a chat started on the phone must not be stamped api_server."""
+# ---------------------------------------------------------------- the live relay
+
+def test_frame_filter():
+    ok, err = check_frame(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "prompt.submit",
+                                      "params": {"session_id": "a", "text": "hi"}}), 1000)
+    assert ok and err is None
+    # Desktop-only or dangerous RPCs are refused with a JSON-RPC error, not forwarded.
+    for method in ("cli.exec", "process.stop", "mcp.servers.add", "profiles.configure", "display.start"):
+        ok, err = check_frame(json.dumps({"jsonrpc": "2.0", "id": 2, "method": method}), 1000)
+        assert ok is None and json.loads(err)["error"]["code"] == -32601
+    # config.set only for the chat's own settings.
+    ok, err = check_frame(json.dumps({"jsonrpc": "2.0", "id": 3, "method": "config.set",
+                                      "params": {"key": "model", "value": "x"}}), 1000)
+    assert ok
+    ok, err = check_frame(json.dumps({"jsonrpc": "2.0", "id": 4, "method": "config.set",
+                                      "params": {"key": "terminal.backend", "value": "x"}}), 1000)
+    assert ok is None and err
+    # Answers only to Hermes' own questions (srq- ids).
+    assert check_frame(json.dumps({"jsonrpc": "2.0", "id": "srq-0123456789ab", "result": {"choice": "once"}}), 1000)[0]
+    assert check_frame(json.dumps({"jsonrpc": "2.0", "id": 7, "result": {}}), 1000) == (None, None)
+    assert json.loads(check_frame("x" * 2000, 1000)[1])["error"]["message"] == "Frame too large"
+    assert json.loads(check_frame("not json", 1000)[1])["error"]["code"] == -32700
+
+
+@pytest.fixture
+def fake_hermes():
+    """A real WebSocket server playing `hermes serve`'s /api/ws: checks the token, echoes calls
+    as results and pushes one event, so the test sees both directions through the bridge."""
+    seen = []
+
+    def handler(conn):
+        if "token=tok" not in conn.request.path:
+            conn.close(4401)
+            return
+        conn.send(json.dumps({"jsonrpc": "2.0", "method": "event", "params": {"type": "gateway.ready", "payload": {}}}))
+        for raw in conn:
+            frame = json.loads(raw)
+            seen.append(frame)
+            if "method" in frame:
+                conn.send(json.dumps({"jsonrpc": "2.0", "id": frame["id"], "result": {"echo": frame["method"]}}))
+                if frame["method"] == "prompt.submit":
+                    conn.send(json.dumps({"jsonrpc": "2.0", "method": "event", "params": {
+                        "type": "message.delta", "session_id": "a", "payload": {"text": "hel"}, "seq": 1}}))
+                    conn.send(json.dumps({"jsonrpc": "2.0", "id": "srq-0123456789ab", "method": "approval",
+                                          "params": {"session_id": "a", "request_id": "r1", "command": "rm x"}}))
+
+    server = serve(handler, "127.0.0.1", 0)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield server.socket.getsockname()[1], seen
+    server.shutdown()
+
+
+def _relay_app(tmp_path, port):
     cfg = Config(devices_file=tmp_path / "d.json", audit_log=tmp_path / "a.log")
     store = DeviceStore(cfg.devices_file)
     _, token = store.pair("phone")
-    hermes = FakeHermes({("POST", "/api/sessions"): {"session": {"id": "api_1"}}})
-    app = create_app(cfg, hermes=hermes, tailnet=FakeTailnet({"100.64.0.10": "me@example.com"}),
-                     devices=store, owner_login="me@example.com")
-    c = client(app, "100.64.0.10")
-    h = {"Authorization": f"Bearer {token}"}
-    assert c.post("/v1/sessions", headers=h, json={}).status_code == 201
-    assert hermes.sent_json("POST", "/api/sessions") == {"source": "cli"}
-    c.post("/v1/sessions", headers=h, json={"title": "from phone"})
-    assert hermes.sent_json("POST", "/api/sessions") == {"source": "cli", "title": "from phone"}
+    app = create_app(cfg, locator=FakeLocator(Backend(port, "tok")), http=fake_http(),
+                     tailnet=FakeTailnet({PHONE: "me@example.com"}), devices=store, owner_login="me@example.com")
+    return app, token, store, cfg
+
+
+def test_relay_carries_both_directions(tmp_path, fake_hermes):
+    port, seen = fake_hermes
+    app, token, _, cfg = _relay_app(tmp_path, port)
+    with client(app, PHONE).websocket_connect("/v1/ws", headers=auth(token)) as ws:
+        assert ws.receive_json()["params"]["type"] == "gateway.ready"
+        ws.send_text(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "prompt.submit",
+                                 "params": {"session_id": "a", "text": "hi"}}))
+        assert ws.receive_json() == {"jsonrpc": "2.0", "id": 1, "result": {"echo": "prompt.submit"}}
+        assert ws.receive_json()["params"]["payload"]["text"] == "hel"
+        question = ws.receive_json()
+        assert question["method"] == "approval"
+        # The phone answers Hermes' question on the same socket.
+        ws.send_text(json.dumps({"jsonrpc": "2.0", "id": question["id"], "result": {"choice": "once"}}))
+        # A refused method is answered by the bridge and never reaches Hermes.
+        ws.send_text(json.dumps({"jsonrpc": "2.0", "id": 2, "method": "cli.exec", "params": {"argv": ["x"]}}))
+        assert ws.receive_json()["error"]["code"] == -32601
+        ws.send_text(json.dumps({"jsonrpc": "2.0", "id": 3, "method": "ping"}))
+        assert ws.receive_json()["id"] == 3
+    assert [f.get("method") or f["id"] for f in seen] == ["prompt.submit", "srq-0123456789ab", "ping"]
+    # The close entry lands just after the phone's socket goes away.
+    for _ in range(50):
+        log = cfg.audit_log.read_text()
+        if '"ws_close"' in log:
+            break
+        time.sleep(0.05)
+    assert '"event": "ws_open"' in log and '"prompt.submit": 1' in log and token not in log
+
+
+def test_relay_requires_a_live_device_token(tmp_path, fake_hermes):
+    port, seen = fake_hermes
+    app, token, store, _ = _relay_app(tmp_path, port)
+    c = client(app, PHONE)
+    for headers in ({}, auth("hrb_wrong")):
+        with pytest.raises(WebSocketDisconnect) as e:
+            with c.websocket_connect("/v1/ws", headers=headers) as ws:
+                ws.receive_json()
+        assert e.value.code == 4401
+    store.revoke("phone")
+    with pytest.raises(WebSocketDisconnect):
+        with c.websocket_connect("/v1/ws", headers=auth(token)) as ws:
+            ws.receive_json()
+    assert seen == []
+
+
+def test_relay_refuses_untrusted_networks(tmp_path, fake_hermes):
+    port, _ = fake_hermes
+    app, token, _, _ = _relay_app(tmp_path, port)
+    for ip in ("192.168.1.50", "203.0.113.9", "100.99.0.1"):
+        with pytest.raises(WebSocketDisconnect) as e:
+            with client(app, ip).websocket_connect("/v1/ws", headers=auth(token)) as ws:
+                ws.receive_json()
+        assert e.value.code == 4403
+
+
+def test_relay_says_when_hermes_is_not_running(tmp_path):
+    cfg = Config(devices_file=tmp_path / "d.json", audit_log=tmp_path / "a.log")
+    store = DeviceStore(cfg.devices_file)
+    _, token = store.pair("phone")
+    app = create_app(cfg, locator=FakeLocator(None), http=fake_http(), tailnet=FakeTailnet({PHONE: "me@x"}),
+                     devices=store, owner_login="me@x")
+    with pytest.raises(WebSocketDisconnect) as e:
+        with client(app, PHONE).websocket_connect("/v1/ws", headers=auth(token)) as ws:
+            ws.receive_json()
+    assert e.value.code == 1013
+
+
+def test_ledger_picks_live_serve_backends_newest_first(tmp_path):
+    ledger = tmp_path / "spawn-ledger.json"
+    me = os.getpid()
+    ledger.write_text(json.dumps([
+        {"pid": me, "purpose": "mcp-helper", "port": None},
+        {"pid": me, "purpose": "serve", "host": "127.0.0.1", "port": 40001, "registered_at": 1, "profile": ""},
+        {"pid": me, "purpose": "serve", "host": "127.0.0.1", "port": 40002, "registered_at": 5, "profile": ""},
+        {"pid": me, "purpose": "serve", "host": "127.0.0.1", "port": 40003, "registered_at": 9, "profile": "work"},
+        {"pid": 2_000_000_000, "purpose": "serve", "host": "127.0.0.1", "port": 40004, "registered_at": 9},
+        {"pid": me, "purpose": "serve", "host": "0.0.0.0", "port": 40005, "registered_at": 9},
+    ]))
+    assert ledger_candidates(ledger) == [40002, 40001]
+    assert ledger_candidates(tmp_path / "missing.json") == []
 
 
 def _lan_app(tmp_path, https=True, **cfg_kw):
@@ -336,7 +352,7 @@ def _lan_app(tmp_path, https=True, **cfg_kw):
                  trust_file=tmp_path / "n.json", **cfg_kw)
     store = DeviceStore(cfg.devices_file)
     _, token = store.pair("phone")
-    app = create_app(cfg, hermes=FakeHermes(), tailnet=FakeTailnet({}), devices=store, owner_login=None)
+    app = create_app(cfg, locator=FakeLocator(), http=fake_http(), tailnet=FakeTailnet({}), devices=store, owner_login=None)
     base = "https://192.168.1.10:8650" if https else "http://192.168.1.10:8650"
     return TestClient(app, client=("192.168.1.50", 50000), base_url=base), token
 
@@ -368,7 +384,7 @@ def test_public_address_is_refused_even_with_lan_on(tmp_path):
     cfg = Config(devices_file=tmp_path / "d.json", audit_log=tmp_path / "a.log", lan=True)
     store = DeviceStore(cfg.devices_file)
     _, token = store.pair("phone")
-    app = create_app(cfg, hermes=FakeHermes(), tailnet=FakeTailnet({}), devices=store, owner_login=None)
+    app = create_app(cfg, locator=FakeLocator(), http=fake_http(), tailnet=FakeTailnet({}), devices=store, owner_login=None)
     c = client(app, "203.0.113.9")  # TEST-NET-3, globally routable
     r = c.get("/v1/me", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403 and r.json()["error"]["code"] == "forbidden_network"
@@ -451,27 +467,11 @@ def test_tls_identity_is_created_once_with_private_key(tmp_path):
     assert cert_pin(ensure_identity(tmp_path / "tls")[0]) == pin  # stable across restarts
 
 
-def _app_with_tailnet(tmp_path, tailnet):
-    cfg = Config(devices_file=tmp_path / "devices.json", audit_log=tmp_path / "audit.log")
-    store = DeviceStore(cfg.devices_file)
-    _, token = store.pair("phone")
-    app = create_app(cfg, hermes=FakeHermes(), tailnet=tailnet, devices=store,
-                     owner_login="me@example.com")
-    return client(app, "127.0.0.1"), {"Authorization": f"Bearer {token}"}
 
-
-def test_desktop_endpoint_degrades_when_tailscale_is_down(tmp_path):
-    """Tailscale is optional: /v1/desktop must say what is missing, not fail as a 500."""
-    c, auth = _app_with_tailnet(tmp_path, TailscaleDown())
-    r = c.get("/v1/desktop", headers=auth)
-    assert r.status_code == 503 and r.json()["error"]["code"] == "desktop_unavailable"
-    # The rest of the bridge already treats the same condition as an unreachable component.
-    assert c.get("/v1/status", headers=auth).json()["components"]["tailscale"]["status"] == "unreachable"
-
-
-def test_desktop_endpoint_offers_the_tailnet_address(tmp_path):
-    c, auth = _app_with_tailnet(tmp_path, FakeTailnet({}))
-    body = c.get("/v1/desktop", headers=auth).json()
-    assert body["protocol"] == "rdp" and body["host"] == "100.1.2.3"
-    assert body["dns_name"] == "pc.ts.net" and body["port"] == 3389
-    assert body["rdp_uri"].endswith(":3389")
+def test_retired_config_keys_still_load(tmp_path):
+    p = tmp_path / "config.toml"
+    p.write_text("lan = true\nhermes_url = 'http://127.0.0.1:8642'\nkrdp_port = 3389\n")
+    assert Config.load(p).lan is True
+    p.write_text("bogus = 1\n")
+    with pytest.raises(ValueError):
+        Config.load(p)

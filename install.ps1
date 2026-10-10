@@ -111,10 +111,6 @@ if ($Uninstall) {
     } else {
         Write-Host "Task and tray removed. Paired devices and settings are still in $ConfDir (delete it to forget them)."
     }
-    Write-Host ''
-    Write-Host "This installer only enabled Hermes' API server; it left that in place."
-    Write-Host "To remove it too, delete the API_SERVER_ENABLED and API_SERVER_KEY lines from"
-    Write-Host "$HermesHome\.env"
     exit 0
 }
 
@@ -146,31 +142,8 @@ if (-not (Get-Command tailscale -ErrorAction SilentlyContinue) -and
 }
 Info 'ok'
 
-Bold '2/5 Hermes API server'
-$EnvFile = Join-Path $HermesHome '.env'
-if (-not (Test-Path $EnvFile)) { New-Item -ItemType File -Path $EnvFile | Out-Null }
-$lines = @(Get-Content $EnvFile -ErrorAction SilentlyContinue)
-$changed = $false
-if (-not ($lines -match '^API_SERVER_ENABLED=true')) {
-    $lines = @($lines | Where-Object { $_ -notmatch '^API_SERVER_ENABLED=' }) + 'API_SERVER_ENABLED=true'
-    $changed = $true
-}
-if (-not ($lines -match '^API_SERVER_KEY=.+') -or ($lines -match '^API_SERVER_KEY=change-me')) {
-    $bytes = New-Object byte[] 32
-    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
-    $key = ([Convert]::ToBase64String($bytes) -replace '[/+=]', '').Substring(0, 40)
-    $lines = @($lines | Where-Object { $_ -notmatch '^API_SERVER_KEY=' }) + "API_SERVER_KEY=$key"
-    $changed = $true
-}
-if ($changed) {
-    # UTF-8 without a BOM: a BOM would glue itself to the first variable name.
-    [System.IO.File]::WriteAllLines($EnvFile, [string[]]$lines, (New-Object System.Text.UTF8Encoding($false)))
-    Info "Enabled the API server with a fresh key in $EnvFile (loopback only; the key never leaves this PC)."
-    Info 'Restarting the Hermes gateway so it picks this up...'
-    try { hermes gateway restart *> $null } catch { Info "Couldn't restart it; run 'hermes gateway restart' (or start Hermes) yourself." }
-} else {
-    Info 'already enabled'
-}
+Bold '2/5 Hermes'
+Info 'The phone shares the Hermes the desktop app runs (or the bridge starts one); nothing to enable.'
 
 Bold '3/5 Installing the bridge'
 Push-Location $Bridge

@@ -37,24 +37,8 @@ command -v avahi-publish-service >/dev/null || info "Optional: install avahi (av
 command -v tailscale >/dev/null || info "Optional: Tailscale is not installed; the phone will only connect on trusted Wi-Fi."
 info "ok"
 
-bold "2/5 Hermes API server"
-ENV_FILE="$HERMES_HOME/.env"
-touch "$ENV_FILE"; chmod 600 "$ENV_FILE"
-changed=0
-if ! grep -qE '^API_SERVER_ENABLED=true' "$ENV_FILE"; then
-  sed -i '/^API_SERVER_ENABLED=/d' "$ENV_FILE"; echo "API_SERVER_ENABLED=true" >> "$ENV_FILE"; changed=1
-fi
-if ! grep -qE '^API_SERVER_KEY=.+' "$ENV_FILE" || grep -qE '^API_SERVER_KEY=change-me' "$ENV_FILE"; then
-  sed -i '/^API_SERVER_KEY=/d' "$ENV_FILE"
-  echo "API_SERVER_KEY=$(head -c 32 /dev/urandom | base64 | tr -d '/+=' | cut -c1-40)" >> "$ENV_FILE"; changed=1
-fi
-if [[ $changed == 1 ]]; then
-  info "Enabled the API server with a fresh key in $ENV_FILE (loopback only; the key never leaves this PC)."
-  info "Restarting the Hermes gateway so it picks this up..."
-  hermes gateway restart >/dev/null 2>&1 || info "Couldn't restart it; run 'hermes gateway restart' (or start Hermes) yourself."
-else
-  info "already enabled"
-fi
+bold "2/5 Hermes"
+info "The phone shares the Hermes the desktop app runs (or the bridge starts one); nothing to enable."
 
 bold "3/5 Installing the bridge"
 (cd "$BRIDGE" && uv sync --quiet --no-dev --inexact)

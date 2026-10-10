@@ -1,6 +1,6 @@
 [project]
 name = "hermes-remote-bridge"
-version = "0.1.0"
+version = "1.0.0"
 description = "Self-hosted bridge between the Hermes Mobile Remote Android app and the local Hermes Agent API server"
 license = "MIT"
 requires-python = ">=3.11"
@@ -8,6 +8,8 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.30",
     "httpx>=0.27",
+    # The live link to Hermes' JSON-RPC socket (relay.py).
+    "websockets>=13",
     "segno>=1.6",
     "cryptography>=43",
     # Used where the OS gives no simpler answer: interface addresses and mDNS off Linux.
