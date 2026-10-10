@@ -33,6 +33,7 @@ ALLOWED_METHODS = frozenset({
     "session.list", "session.active_list", "session.most_recent", "session.resume", "session.activate",
     "session.create", "session.close", "session.history", "session.events.since", "session.title",
     "session.delete", "session.undo", "session.branch", "session.compress", "session.usage", "session.status",
+    "session.save",
     # turns
     "prompt.submit", "prompt.btw", "prompt.background", "session.interrupt", "session.steer", "session.redirect",
     # slash commands, models, settings
