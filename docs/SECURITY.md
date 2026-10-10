@@ -3,25 +3,29 @@
 What the bridge protects, from whom, and where it deliberately refuses to help. Read
 [ARCHITECTURE.md](ARCHITECTURE.md) first for how the pieces fit together.
 
-The short version: the thing worth stealing is the Hermes API key, and it never leaves the PC.
-The thing worth attacking is the bridge, and it will only talk to devices you paired, from
-networks you chose.
+The short version: the thing worth stealing is Hermes' backend session token, and it never leaves
+the PC. The thing worth attacking is the bridge, and it will only talk to devices you paired, from
+networks you chose, and pass on only what the desktop app itself does.
 
 ## Assets
 
 | Asset | Where it lives | Who can reach it |
 |---|---|---|
-| Hermes API key | `~/.hermes/.env`, read by the bridge at runtime | The bridge process only |
+| Hermes backend session token | Inside the running `hermes serve`; the bridge reads it from loopback at runtime and keeps it in memory | Processes of your user on the PC |
 | Device tokens | Shown once at pairing; only their SHA-256 is stored | The paired phone, in its Keystore |
 | Session content | Hermes' own store | Anything that can talk to Hermes |
 | TLS private key | `~/.config/hermes-remote/tls/`, mode 600 | The PC user |
 
 ## Guarantees
 
-**Hermes stays on loopback.** The API server binds `127.0.0.1`. Its key is read from Hermes' own
-`.env`, held in one module, and never logged, never sent to a device, never included in an error
-message. Rotating the key in `~/.hermes/.env` is picked up on the next request, without restarting
-the bridge.
+**Hermes stays on loopback.** `hermes serve` binds `127.0.0.1`. Its session token is read from
+loopback, held in one module (`backend.py`), and never logged, never sent to a device, never
+included in an error message.
+
+**The phone gets the desktop's chat surface, not the backend.** The relay only forwards the
+JSON-RPC methods the desktop's chat view uses; anything else (file access helpers, config writes
+beyond the chat's model and reasoning, process control) is refused before it reaches Hermes.
+Answers to the agent's questions are accepted only by their `srq-` request id.
 
 **The bridge never binds a wildcard.** It refuses to start on `0.0.0.0` or `::` and lists explicit
 addresses instead. What it serves depends on where you are:
@@ -54,16 +58,14 @@ credentials to a LAN host that is not on pinned TLS.
 
 **Bodies are bounded before authentication.** Chunked bodies are refused (`411`) and bodies over
 1 MB are rejected (`413`), so an oversized upload costs nothing. Per-device limits: 240 requests
-per minute, 20 runs per minute, prompts up to 100k characters.
+per minute; on a live connection 600 frames per minute and 16 MB per frame.
 
-**Destructive actions are awkward on purpose.** Deleting a session needs a confirmation in the app
-*and* the session id repeated in `?confirm=`. Resent messages are deduplicated by a client-generated
-id, so a retry on a flaky network cannot start the same run twice. A session can have only one
-active run.
+**Destructive actions are awkward on purpose.** Deleting a session needs a confirmation in the
+app. Password, sudo and secret prompts are never shown on the phone: they are answered on the PC.
 
 **The audit log records access, not content.** `~/.local/state/hermes-remote/audit.log` (mode 600)
-holds timestamp, peer, device, method, path, status and duration. Never tokens, never prompts,
-never message text.
+holds timestamp, peer, device, method, path, status and duration, and for each live connection
+its open and close with per-method call counts. Never tokens, never prompts, never message text.
 
 **Updates are verified twice.** The app's only traffic outside the bridge is the GitHub update
 check, and it carries no token. The APK's SHA-256 is compared with the digest GitHub publishes,
@@ -77,8 +79,8 @@ request, and never automatically.
 
 Stated plainly, because a security document that only lists wins is not useful.
 
-- **A compromised PC.** The bridge runs as your user. Anything that can read your files can read
-  `~/.hermes/.env`. Use full-disk encryption.
+- **A compromised PC.** The bridge runs as your user. Anything that runs as your user can talk to
+  Hermes on loopback. Use full-disk encryption.
 - **A rooted phone.** Keystore-backed storage raises the cost of token theft; it does not make it
   impossible.
 - **Your Hermes agent's own judgement.** Approvals are a speed bump for a *runaway* command, not a
@@ -88,8 +90,9 @@ Stated plainly, because a security document that only lists wins is not useful.
   on a network you *did* trust is watching. Use Tailscale when that matters.
 - **A stolen PC while it is unlocked and on.** The token store and the key are readable by your
   user account.
-- **Hermes' own API.** The bridge is a gate in front of it, not a sandbox around it. Anything that
-  can reach `127.0.0.1:8642` with the key has the same access the bridge has.
+- **Hermes' own backend.** The bridge is a gate in front of it, not a sandbox around it. Anything
+  that can reach Hermes on loopback with its session token has more access than the bridge
+  passes on.
 
 ## Reporting a vulnerability
 

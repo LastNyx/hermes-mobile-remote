@@ -3,28 +3,41 @@
 Three pieces, with one rule: the phone never holds a credential that can reach Hermes directly.
 
 ```
-┌──────────────┐   HTTPS (pinned cert)   ┌──────────────┐   HTTP + bearer key   ┌──────────────┐
-│ Android app  │ ──────────────────────► │    bridge    │ ────────────────────► │ Hermes API   │
-│              │   HTTP inside WireGuard │  (your PC)   │      127.0.0.1        │  127.0.0.1   │
-│ 1 token      │ ◄────────────────────── │ 1 API key    │ ◄──────────────────── │ :8642        │
-└──────────────┘        SSE              └──────────────┘                       └──────────────┘
+┌──────────────┐  WebSocket + REST, HTTPS  ┌──────────────┐   WebSocket, loopback   ┌──────────────┐
+│ Android app  │ ────────────────────────► │    bridge    │ ──────────────────────► │ hermes serve │
+│              │  (pinned cert) or inside  │  (your PC)   │   the desktop's own     │  127.0.0.1   │
+│ 1 token      │ ◄──────────────────────── │ checks token │ ◄────────────────────── │  (shared)    │
+└──────────────┘        WireGuard          └──────────────┘                         └──────────────┘
+                                                                                        ▲
+                                                                     Hermes desktop app ┘
 ```
 
 | Piece | Lives in | Responsibility |
 |---|---|---|
-| App | `android/` | UI, one device token, TLS pinning, reconnect and replay |
-| Bridge | `bridge/` | Device auth, network policy, run bookkeeping, event replay |
-| Hermes | your install | The agent, the tools, the model calls, the session store |
+| App | `android/` | UI, one device token, TLS pinning, reconnect, rendering Hermes' events |
+| Bridge | `bridge/` | Device auth, network policy, finding the backend, relaying the socket |
+| Hermes | your install | The agent, the tools, the model calls, the session store, the live turns |
 
 ## Why a bridge at all
 
-Hermes' API server speaks bearer-key auth and assumes a trusted network: anything that can reach
-it holds a key that can drive an agent with your tools. A phone on cafe Wi-Fi cannot be given that
-key.
+Hermes' backend trusts whoever holds its session token and listens on loopback only: anything
+that can reach it can drive an agent with your tools. A phone on cafe Wi-Fi cannot be given that.
 
-So the key stays on the PC, behind a process that can say no. The bridge holds the key, exposes a
-narrower API on the network, and authenticates each device separately. Compromise of the phone
-means a revoked token, not a stolen API key.
+So the token stays on the PC, behind a process that can say no. The bridge exposes a narrower
+surface on the network and authenticates each device separately. Compromise of the phone means a
+revoked device token, not access to Hermes' own credentials.
+
+## Why one shared backend
+
+Before 1.0 the bridge drove Hermes' HTTP runs API and kept its own run bookkeeping, so the phone
+and the desktop were two different clients of two different APIs: phone runs reached the desktop
+late, desktop runs reached the phone by polling, and every send paid a setup cost.
+
+Since 1.0 the phone uses the same backend and the same socket protocol as the desktop app. Hermes
+broadcasts every session's events to every attached client, routes approval and clarify questions
+to any client that announced it can answer them, and withdraws a question answered elsewhere. Live
+sync between the two screens is therefore Hermes' own behaviour, not something the bridge
+reimplements.
 
 ## The bridge
 
@@ -50,60 +63,54 @@ Every request passes three gates, in this order:
 2. **How big.** Chunked bodies are refused; bodies over 1 MB are `413`. This runs before
    authentication so an oversized upload is rejected without doing work for the caller.
 3. **Who.** `Authorization: Bearer <device token>`, matched against the SHA-256 of the token.
-   Unknown or revoked is `401`. Per-device rate limits apply after this (240 requests/min,
-   20 runs/min).
+   Unknown or revoked is `401` (on the socket: close `4401`). Per-device rate limits apply after
+   this (240 requests/min; 600 frames/min on a live connection).
 
 Successful requests are appended to an audit log with device, path, status and duration — never
 tokens or prompts.
 
-### Run bookkeeping, and why it exists
+### Finding Hermes (`backend.py`)
 
-Hermes' `/v1/runs/{id}/events` is a single-consumer stream with no replay. If the phone's
-connection drops, the transport is gone and the missed events are gone with it; if a second client
-attached, they would steal events from the first.
+The bridge reads Hermes' spawn ledger (`~/.hermes/spawn-ledger.json`), the same file the desktop
+app reads to attach to a running backend, and takes the newest live `serve` entry of the default
+profile. The backend's session token is read from the page it serves its own renderer. If nothing
+is running and `start_hermes` is on, the bridge starts `hermes serve` on loopback; it registers in
+the same ledger, so a desktop opened later joins it instead of starting a second one.
 
-So the bridge owns that subscription for the whole life of the run (`bridge/hermes_remote_bridge/runs.py`).
-It pumps every event out of Hermes once, buffers it with a monotonic sequence number, and lets any
-number of clients attach and re-attach with `Last-Event-ID`. A phone that walks out of Wi-Fi
-range and back re-reads from where it stopped.
+### The relay (`relay.py`)
 
-If the upstream stream dies without a terminal event, the bridge reconciles by polling the run's
-status, and gives up with `run.interrupted` rather than hanging. That case is visible in the app
-instead of silently stalling.
-
-### Slash commands
-
-Slash commands are not in the HTTP API. Hermes runs them in its TUI gateway
-(`python -m tui_gateway.entry`, newline-delimited JSON-RPC over stdio). The bridge keeps one such
-child process, resumes the target session in it, runs the command, and closes it again
-(`bridge/hermes_remote_bridge/slash.py`).
-
-Only commands that act on persisted state are offered. A command needing a live agent in that
-process (`/retry`, `/undo`, `/btw`) would run against an empty agent and report something
-misleading, so it is left out rather than shown broken. Skills are always offered: they expand
-into a prompt the app sends as a normal run.
+`/v1/ws` is relayed frame for frame to the backend's `/api/ws`. The bridge parses each frame from
+the phone just enough to enforce policy: a method allowlist (what the desktop's chat view calls),
+`config.set` limited to the chat's model, reasoning and fast mode, replies to the agent's questions
+only by their `srq-` id, a frame size cap and a per-connection frame rate. Frames from Hermes pass
+through untouched. Each connection is audited on open and close with per-method counts.
 
 ## The app
 
-Kotlin and Jetpack Compose, one activity, four pages (`CHAT`, `SETTINGS`, `DESKTOP`, and the
-sessions pane) swapped with `AnimatedContent`. On a phone the session list is a modal drawer; at
+Kotlin and Jetpack Compose, one activity, two pages (`CHAT`, `SETTINGS`) swapped with
+`AnimatedContent`, plus the sessions pane. On a phone the session list is a modal drawer; at
 720 dp and up it is a fixed 320 dp pane beside the chat.
 
 | Concern | Where |
 |---|---|
-| Transport, pinning, error mapping | `data/BridgeClient.kt`, `data/CertPin.kt` |
+| REST transport, pinning, error mapping | `data/BridgeClient.kt`, `data/CertPin.kt` |
+| The live socket: JSON-RPC calls, events, questions, reconnect | `data/Gateway.kt` |
+| One socket for the whole process, background notifications | `data/LiveLink.kt`, `data/WatchService.kt`, `data/Notifier.kt` |
 | Which path to use, LAN vs Tailscale | `data/EndpointResolver.kt` |
-| Folding run events into chat items | `data/Chat.kt` (`LiveReducer`) |
-| Persisted history into chat items | `data/Chat.kt` (`HistoryMapper`) |
+| Folding Hermes' events into chat items | `data/Chat.kt` (`LiveReducer`) |
+| Hermes' stored transcript into chat items | `data/Chat.kt` (`HistoryMapper`) |
 | Token storage | `data/CredentialStore.kt` (Android Keystore) |
-| State, and following other surfaces | `AppViewModel.kt` |
+| State, slash commands, models | `AppViewModel.kt` |
 | UI | `ui/ChatScreen.kt`, `ui/Screens.kt`, `ui/Components.kt` |
 
 Two rules shape this code. The device token is only ever sent to a tailnet host, or to a LAN host
-over a pinned TLS handshake — an interceptor re-checks that on every request, so a misconfigured
-endpoint cannot quietly downgrade to cleartext. And a run started elsewhere is *followed*, not
-owned: the app polls `/v1/sessions/{id}/sync` with a cursor (a message count) so it never
-re-renders or skips history.
+over a pinned TLS handshake: an interceptor re-checks that on every request and on the socket
+upgrade, so a misconfigured endpoint cannot quietly downgrade to cleartext. And the app never
+invents state Hermes already has: a chat is shown by `session.resume` (transcript, turn in flight,
+open questions) and then kept current by Hermes' own events, the way the desktop does it.
+
+Streamed text is applied to the list at most once per frame and revealed at a steady pace, so a
+burst of tokens does not make the list re-layout per token.
 
 ## Data on the phone
 

@@ -4,17 +4,23 @@
 
 <p align="right"><img src="demo/demo.gif" width="240" alt="A run streaming back to the phone: a tool call, then the reply"></p>
 
-An Android app for [Hermes Agent](https://hermes-agent.nousresearch.com). Chat with your agent
-from your phone, watch runs stream in, approve tool calls, and switch models — while Hermes keeps
-running on your own PC, with its full toolset.
+An Android app for [Hermes Agent](https://hermes-agent.nousresearch.com). The phone is another
+window of the Hermes your desktop app is running: the same sessions, the same live turns, streamed
+token by token on both screens. Send, steer and stop, answer approvals and questions, switch models
+and reasoning, and use every slash command — while Hermes keeps running on your own PC, with its
+full toolset.
 
-The app never talks to Hermes directly. A small bridge runs next to Hermes, holds the API key,
-and admits only the phones you paired.
+The app never talks to Hermes directly. A small bridge runs next to Hermes, admits only the phones
+you paired, and relays them to the same backend socket the desktop uses.
 
 ```
 Android app ── trusted Wi-Fi: HTTPS, pinned certificate ──┐
-           └── anywhere else: Tailscale (optional) ───────┴─► bridge :8650 ─ loopback ─► Hermes :8642
+           └── anywhere else: Tailscale (optional) ───────┴─► bridge :8650 ─ loopback ─► hermes serve
+                                                                                 (shared with the desktop app)
 ```
+
+**1.0 is a breaking change.** A 1.x bridge needs a 1.x app and vice versa. Update both: re-run
+`./install.sh` on the PC, then update the app from its System tab.
 
 MIT licensed. See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
@@ -43,7 +49,7 @@ Full walkthrough, including what the installer changes and how to remove it:
 
 ## Try it without installing Hermes
 
-The repository ships a demo stack: a fake Hermes API with scripted, synthetic data, plus a bridge
+The repository ships a demo stack: a fake Hermes backend with scripted, synthetic data, plus a bridge
 wired to it. No API keys, no model calls, and nothing private can leak into a screenshot.
 
 ```bash
@@ -67,7 +73,7 @@ Each document has one job.
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What is planned, and what is deliberately not |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Symptoms, causes, fixes |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Building, testing and releasing |
-| [docs/BRIDGE_API.md](docs/BRIDGE_API.md) | The HTTP + SSE contract the app codes against |
+| [docs/BRIDGE_API.md](docs/BRIDGE_API.md) | The REST + WebSocket contract the app codes against |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | The rules for contributions |
 | [SECURITY.md](SECURITY.md) | Reporting a vulnerability |
 | [demo/README.md](demo/README.md) | The demo stack and how to record screenshots |

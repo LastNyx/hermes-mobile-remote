@@ -20,8 +20,8 @@ val keystoreProps = Properties().apply {
 }
 val hasReleaseKey = keystoreProps.getProperty("storeFile") != null
 
-// Release builds take their version from the git tag (v0.8.0 -> 0.8.0, code 800).
-val appVersionName = System.getenv("APP_VERSION")?.removePrefix("v") ?: "0.8.0"
+// Release builds take their version from the git tag (v1.0.0 -> 1.0.0, code 10000).
+val appVersionName = System.getenv("APP_VERSION")?.removePrefix("v") ?: "1.0.0"
 val appVersionCode = appVersionName.split('.', '-').take(3).map { it.toIntOrNull() ?: 0 }
     .let { (it + listOf(0, 0, 0)).take(3) }.let { (major, minor, patch) -> major * 10000 + minor * 100 + patch }
 

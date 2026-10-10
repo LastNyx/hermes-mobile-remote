@@ -6,41 +6,44 @@ security rules behind the connection features, see [SECURITY.md](SECURITY.md).
 
 ## Chat
 
-**Streaming replies.** A reply arrives token by token over SSE, with a live cursor. Tool calls
-render as cards with their arguments, result and duration; a card that fails is marked red.
+**One Hermes, two windows.** The phone attaches to the same Hermes backend the desktop app uses.
+A chat started on either screen shows up on the other immediately, and a turn running on the
+desktop streams on the phone token by token, and the other way round. There is nothing to sync.
 
-**Steering and stopping.** While a run is in flight the composer becomes "Steer the running
-task…", and the send button turns into a stop button. You can add instructions mid-run or cancel.
+**Streaming replies.** Text is revealed at a steady pace as it arrives, with a typing indicator
+before the first word and the model's reasoning in a collapsible block. Tool calls render as cards
+with their arguments, result and duration; a running card shimmers, a failed one is marked red.
 
-**Following a run started elsewhere.** Open a session that is already running on the desktop, the
-CLI or a messaging platform and the app tails it, so you can watch a run you did not start. The
-header says "Running on another device" while that happens.
-
-- Limit: only runs the app itself started stream token by token. A run started elsewhere appears
-  as Hermes persists each step, so it can lag by a few seconds.
+**Steering and stopping.** While a turn is in flight the composer becomes "Steer the running
+task…", and the send button turns into a stop button. You can add instructions mid-turn or cancel.
 
 **Drafts.** An unsent message survives switching tabs, rotating the screen and restarting the app.
 
-**Sessions.** Swipe in the drawer from the left edge (or the Sessions tab) to search, pin, rename
-and delete chats. Long-press a session for those actions. Deleting asks for confirmation and the
-bridge requires the session id again, so a mistap cannot delete a conversation.
+**Sessions.** Swipe in the drawer from the left edge to search, pin, rename and delete chats.
+Long-press a session for those actions; deleting asks for confirmation. A session that is working
+right now — on any screen — shimmers in the list, like the desktop sidebar.
 
 **Pinned sessions.** Pins are shared with the Hermes desktop app; pin on either surface.
 
 ## Models and reasoning
 
-**Per-message model picker.** Lists every model your configured providers can actually serve.
-Providers that are not authenticated, and models Hermes marks unavailable, are left out, so the
-picker never offers something that would fail.
+**Model picker.** Lists every model your configured providers can actually serve. Providers that
+are not authenticated, and models Hermes marks unavailable, are left out. Picking one switches the
+open chat, exactly like the desktop's picker; it does not change your global default.
 
-**Per-message reasoning effort.** Off, Low, Medium, High, Extra high or Max, or Hermes' configured
-default. Sent per run; the app does not change your global setting.
+**Reasoning effort.** Off, Minimal, Low, Medium, High, Extra high or Max, set on the open chat.
 
 ## Approvals
 
-**Approval dock.** When a run needs permission for a command, a panel slides up above the
+**Approval dock.** When a turn needs permission for a command, a panel slides up above the
 composer showing the exact command and four choices: allow once, allow for the session, always
-allow, or deny. The run is blocked until you answer.
+allow, or deny. Answer on whichever screen is closer: the phone and the desktop see the same
+question, and answering on one withdraws it from the other.
+
+**Questions from the agent.** When the agent asks you something (the clarify tool), the choices or
+a text field appear in the same dock.
+
+- Limit: password, sudo and secret prompts are answered on the PC. The phone says one is waiting.
 
 **Approval mode.** Settings (System tab) switches Hermes' global `approvals.mode`: Manual, Smart
 or Off. This is Hermes' own setting and applies everywhere — desktop, messaging platforms and
@@ -48,16 +51,14 @@ this app — not just to the phone.
 
 ## Slash commands and skills
 
-Type `/` in the composer for Hermes' commands and your installed skills, with filtering.
+Type `/` in the composer for Hermes' commands and your installed skills, suggested by Hermes'
+own completer. They run against the live agent, the way the desktop runs them, so all of them
+work: `/retry`, `/undo`, `/btw`, `/background`, `/title`, `/compress`, `/branch`, `/status`,
+`/save`, `/plan`, skills, and the rest. `/new`, `/model`, `/reasoning` and `/stop` map onto the
+app's own controls.
 
-- Commands that act on stored state run on the PC and print their output in the chat
-  (`/status`, `/tools`, `/memory`, `/title`, `/compress`, `/approvals`, …).
-- Skills and plan-style commands expand into a prompt the app sends as a normal run.
-- `/new`, `/model`, `/reasoning` and `/stop` map onto the app's own controls.
-
-Not offered: commands that need the agent loaded in memory on the PC (`/retry`, `/undo`, `/btw`,
-`/goal`, `/usage`). The bridge would run them against an empty agent and report something
-misleading, so they are left out rather than shown broken.
+Not offered: commands that only make sense in a terminal or open a desktop window (`/voice`,
+`/skin`, `/pet`, `/config`, …), the same set the desktop app hides.
 
 ## Connection
 
@@ -84,11 +85,8 @@ side notices network changes within about 5 s.
 ## Running alongside the PC
 
 **One session, many surfaces.** Sessions, pins and titles are Hermes' own, so a chat started on
-the phone appears on the desktop and vice versa.
-
-**Remote desktop (optional).** The Desktop tab opens your PC's desktop in
-[aFreeRDP](https://f-droid.org/packages/com.freerdp.afreerdp/) with the connection pre-filled. It
-is built for KDE's KRdp, which Microsoft's own Android RDP client cannot use.
+the phone appears on the desktop and vice versa. If the desktop app is closed, the bridge starts
+Hermes itself; open the desktop later and it joins the same backend.
 
 **Tablet layout.** On a screen 720 dp wide or more, the session list sits next to the chat instead
 of behind a drawer.
@@ -99,18 +97,17 @@ of behind a drawer.
 in place (System tab → App version). The APK's SHA-256 is checked against the one GitHub reports,
 and Android only installs it if it is signed with the same key as the app you already have.
 
-**Notifications.** You are notified when a run you started finishes or needs approval while the
-app is in the background.
+**Notifications.** While the app is in the background it keeps its connection to the PC and
+notifies you when a chat you opened on the phone finishes, or needs an approval or an answer.
+Answering on the PC clears the notification.
 
-- Limit: runs started on the PC do not raise notifications.
 - Some vendors (Xiaomi, Huawei and others) kill background apps aggressively. If notifications
   stop arriving, allow the app to run in the background.
 
 ## Known limits
 
-- Live streaming only for runs started in the app.
-- Notifications only for runs started in the app.
+- The PC has to be on, with the bridge running. There is no cloud relay.
 - The bridge runs on Linux (supported) and Windows (experimental). macOS is not implemented. See
   [PLATFORMS.md](PLATFORMS.md).
-- Slash commands that need a live agent on the PC are not offered.
-- One active run per session, by design: the bridge refuses a second.
+- Password, sudo and secret prompts are answered on the PC.
+- One turn at a time per session. While a turn runs, what you type steers it.

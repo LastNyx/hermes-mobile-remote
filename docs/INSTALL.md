@@ -17,8 +17,13 @@ The steps below are for Linux. **Windows** has its own section at the end.
 macOS is not supported yet. See [PLATFORMS.md](PLATFORMS.md) for what each OS does and does not
 have.
 
-Hermes' API server has to be reachable on `127.0.0.1:8642`. The installer turns it on if it is
-not already.
+Nothing in Hermes needs enabling. The phone shares the backend the Hermes desktop app runs; when
+the desktop app is closed, the bridge starts `hermes serve` itself on loopback.
+
+**Upgrading from 0.x:** re-run the installer, then update the app from its System tab. A 1.x bridge
+and a 0.x app cannot talk to each other. The installer no longer touches Hermes' API server; if 0.x
+turned it on for the bridge, you can turn it off again (`hermes config set api_server.enabled
+false`) unless something else uses it.
 
 ## Install the bridge
 
@@ -30,7 +35,7 @@ cd hermes-mobile-remote
 
 The installer is safe to re-run. It:
 
-1. Enables the Hermes API server on loopback with a random key, if it is not already enabled.
+1. Checks for `uv` and a Hermes install.
 2. Installs the bridge into `bridge/.venv` and starts it as a systemd **user** service.
 3. Asks whether the current network is yours (home or office) and should be trusted.
 4. If a firewall (ufw or firewalld) blocks the bridge port, shows the exact rules and asks before
@@ -90,11 +95,6 @@ journalctl --user -u hermes-remote-bridge -f    # live log
 Revoking a device is immediate: the next request from it is `401`. Re-pairing under a name that is
 already active fails, so revoke first.
 
-## Rotating the Hermes key
-
-Change `API_SERVER_KEY` in `~/.hermes/.env` and restart Hermes. The bridge reads the new key on its
-next request; no bridge restart needed.
-
 ## Uninstall
 
 ```bash
@@ -122,14 +122,16 @@ Everything is optional; the defaults are sensible. Config lives in
 port = 8650
 lan = true                      # serve the local network on trusted networks
 mdns = true                     # announce over mDNS so the app finds a changed IP
-hermes_url = "http://127.0.0.1:8642"
+start_hermes = true             # start `hermes serve` when the desktop app isn't running
 allowed_logins = []             # Tailscale logins allowed; empty means this node's owner
 max_body_bytes = 1_000_000
 requests_per_minute = 240
-runs_per_minute = 20
+frames_per_minute = 600         # per live connection
 ```
 
-An unknown key is an error, not a silently ignored typo.
+An unknown key is an error, not a silently ignored typo. Keys from 0.x (`hermes_url`,
+`hermes_env`, `krdp_unit`, `krdp_port`, `runs_per_minute`, `run_buffer_events`,
+`run_retention_seconds`) are accepted and ignored, so an old file still loads.
 
 ## Trying it without a Hermes install
 
@@ -165,15 +167,14 @@ and installs it for you, with `winget` or the official installer, no admin neede
 (`install.cmd -InstallUv`) to skip the question. It then finds `uv` in the same window, so you do not have to reopen
 PowerShell.
 
-The installer does the same five things as the Linux one:
+The installer does the same things as the Linux one:
 
 1. Checks `uv` and Hermes (`%LOCALAPPDATA%\hermes`, or `$env:HERMES_HOME`).
-2. Turns on Hermes' API server with a fresh random key in Hermes' `.env`.
-3. Installs the bridge into `bridge\.venv`.
-4. Registers a Scheduled Task called **Hermes Mobile Remote** that starts at logon. It starts the
+2. Installs the bridge into `bridge\.venv`.
+3. Registers a Scheduled Task called **Hermes Mobile Remote** that starts at logon. It starts the
    tray app, which runs the bridge, restarts it when the network changes, and puts an icon in the
    notification area.
-5. Asks whether this is a network you trust, then offers the firewall rule (one UAC prompt, private
+4. Asks whether this is a network you trust, then offers the firewall rule (one UAC prompt, private
    ranges and the Private profile only).
 
 Then pair the phone: the tray is in the notification area, so use **Devices → Pair a new device**

@@ -68,7 +68,6 @@ afterwards:
 
 ```bash
 bridge/.venv/bin/hermes-remote-bridge pair e2e --token-file /tmp/e2e.json
-(cd bridge && uv run python tests/e2e_live.py /tmp/e2e.json)
 (cd android && HERMES_REMOTE_E2E=/tmp/e2e.json ./gradlew testDebugUnitTest --tests '*LiveBridgeTest*')
 bridge/.venv/bin/hermes-remote-bridge revoke e2e
 ```

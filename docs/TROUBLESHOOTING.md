@@ -71,58 +71,53 @@ The System tab shows the current path with manual switches. Automatic re-selecti
 network change, every 20 s while the app is open, and when you return to the app. If both paths are
 reachable it prefers the LAN.
 
-**It was working and stopped after a Hermes restart.**
+**"Hermes is not answering" / the app keeps reconnecting.**
 
-Check that Hermes' API server is actually up: `hermes config get api_server.enabled`, and that
-`API_SERVER_KEY` is still set in `~/.hermes/.env`. The bridge reports this as
-`Hermes returned HTTP 401` in the app.
+The bridge could not reach a Hermes backend. `hermes-remote-bridge doctor` says which: no backend
+in the spawn ledger and `start_hermes = false`, or `hermes serve` failed to start (its log is
+`~/.local/state/hermes-remote/hermes-serve.log`). Opening the Hermes desktop app also starts one,
+and the bridge attaches to it on the next connect.
 
-## Runs misbehave
+**Nothing loads after updating only the PC or only the phone.**
 
-**"This session already has an active run."**
+1.0 changed the protocol. Update both: `./install.sh` on the PC, the app from its System tab.
 
-By design: one run per session. Open a new chat, or stop the running one.
+## Turns misbehave
 
-**The reply shows up in bursts instead of streaming.**
+**Typing while a turn runs steers it instead of sending a new message.**
 
-Only runs started *in the app* stream token by token. If the session was started on the desktop,
-CLI or a messaging platform, the app follows it by polling, so it appears as Hermes persists each
-step.
+By design, as on the desktop: one turn at a time per session. Stop the turn, or open a new chat.
 
-**A run stopped mid-way and the app says it was interrupted.**
+**The phone lost the connection mid-turn.**
 
-Hermes' event stream is single-consumer with no replay; the bridge owns that subscription and
-reconnects for you. When even that cannot settle the run, it reports `run.interrupted` rather than
-spinning forever. Check the bridge log for the run id.
+The turn keeps running on the PC. When the phone reconnects it re-opens the chat with
+`session.resume`, which returns the transcript so far, the turn still in flight and any open
+question, then continues streaming.
 
-**"Too many requests" / "Too many runs started".**
+**"Too many requests".**
 
-The per-device limits are 240 requests/min and 20 runs/min. Usually a reconnect loop: a phone on a
-network that drops every few seconds re-requests the session list. Fix the network, not the limit.
+The per-device limits are 240 requests/min and, on a live connection, 600 frames/min. Usually a
+reconnect loop on a network that drops every few seconds. Fix the network, not the limit.
 
 ## Slash commands
 
 **A command is not in the list.**
 
-Only commands that act on stored state are offered, plus your skills. `/retry`, `/undo`, `/btw`,
-`/goal` and `/usage` need a live agent in the gateway process, which the bridge does not keep
-loaded, so they are hidden rather than shown broken.
+The list comes from Hermes' own completer. Commands that only work in a terminal or open a desktop
+window (`/voice`, `/skin`, `/pet`, `/config`, …) are hidden, the same set the desktop app hides.
 
-**"/xyz isn't available in the app"**
+**"Method not available from the phone".**
 
-The command exists in Hermes but is not one the app offers. That is the same rule as above.
-
-**No commands at all.**
-
-The bridge could not start the gateway: it looks for Hermes' Python at `hermes_python` in
-`config.toml`. Check that path, and that `hermes_root` still contains `tui_gateway`.
+The bridge's relay refused a call that the desktop's chat view does not make. If the app made it,
+that is a bug: report it with the bridge log line.
 
 ## Notifications
 
-**No notification when a run finishes.**
+**No notification when a turn finishes.**
 
-Only runs started in the app raise one. Also check that the app is allowed to run in the
-background: Xiaomi, Huawei and some other vendors kill background apps aggressively, and the
+Notifications cover chats opened on the phone, while the app keeps its connection in the
+background (a silent "watching" notification shows while it does). Check that the app is allowed
+to run in the background: Xiaomi, Huawei and some other vendors kill background apps aggressively, and the
 setting is per-vendor and easy to miss.
 
 ## Updates
@@ -146,8 +141,8 @@ systemctl --user status hermes-remote-bridge
 journalctl --user -u hermes-remote-bridge -n 50
 ```
 
-The two most common causes: the Hermes API key is missing from `~/.hermes/.env`, or a saved network
-went away and the bridge is trying to rebind an address it no longer has. It exits with status 75
+The most common cause: a saved network went away and the bridge is trying to rebind an address it
+no longer has. It exits with status 75
 when the listen set changed, and systemd restarts it.
 
 **Editing the unit file changed nothing.**

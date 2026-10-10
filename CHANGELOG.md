@@ -3,6 +3,30 @@
 Releases are git tags; the version in the app comes from the tag. `git log v0.9.0..vX.Y.Z` is the
 authoritative history — this file only summarises what is worth knowing before upgrading.
 
+## v1.0.0
+
+**Breaking: update the bridge and the app together.** A 1.x bridge does not serve 0.x apps, and a
+1.x app cannot use a 0.x bridge. Re-run `./install.sh` (or `install.cmd`), then update the app from
+its System tab.
+
+The phone is now another window of the Hermes the desktop app runs. The bridge no longer drives
+Hermes' HTTP runs API; it relays one authenticated WebSocket to the desktop's own `hermes serve`
+(found through Hermes' spawn ledger, or started when the desktop is closed).
+
+- Replies stream token by token on both screens, wherever the turn was started. No more polling
+  or "running on another device".
+- The session list shimmers for sessions working anywhere, like the desktop sidebar.
+- Approvals and clarify questions can be answered on either screen; answering on one clears the
+  other.
+- Every slash command works, including `/retry`, `/undo`, `/btw` and `/background`, because it
+  runs against the live agent.
+- Model and reasoning are set on the chat, as the desktop does.
+- Background notifications now cover turns started on the PC in chats opened on the phone.
+- New animations: steady text reveal, typing indicator, shimmering rows, spring entrances.
+- Removed: the Desktop (RDP) page, the `/v1/runs`, `/v1/models`, `/v1/commands`, `/sync` and
+  `/v1/desktop` endpoints, and the installer step that enabled Hermes' API server.
+- `config.toml` keys from 0.x are accepted and ignored.
+
 ## v0.9.0
 
 Mobile-first UI overhaul. Navigation became a bottom bar (Agent, Sessions, Desktop, System); on

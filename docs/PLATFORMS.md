@@ -59,9 +59,6 @@ Install: see [INSTALL.md](INSTALL.md#windows). Things that are specific to it:
   the bridge; that is the trade for having no service machinery.
 - **Trusting a network** is asked once per new network, the way the Linux notification does. The
   command is still there when you want it: `hermes-remote-bridge trust`.
-- **Desktop hand-off (RDP).** The app's "Desktop" tab expects an RDP server on port 3389. Windows
-  Pro has one built in (Settings, System, Remote Desktop); Home does not. The bridge reports the
-  desktop as up when the port answers.
 - **Logs** are in `%LOCALAPPDATA%\hermes-remote\state\bridge.log` (and `audit.log`, `tray.log`
   beside it).
 

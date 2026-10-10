@@ -37,7 +37,7 @@ git log -p --all | grep -iE 'password|token|api[_-]?key' | head
 payloads, no `local.properties` with a local SDK path that other people will not have. These are
 gitignored; leave them that way.
 
-**The bridge API is a contract.** If you change a field name, an SSE event name, an error code or a
+**The bridge API is a contract.** If you change a field name, an allowed socket method, an error code or a
 status code, update [`docs/BRIDGE_API.md`](docs/BRIDGE_API.md) in the same commit. The app codes
 against that document, and a silent change breaks installed apps in a way no test here would catch.
 

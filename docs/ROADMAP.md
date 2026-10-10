@@ -13,12 +13,11 @@ Roughly, in the order the pieces landed:
 - Android app with chat, sessions, pins, rename, delete and search.
 - The bridge: pairing, per-device tokens, LAN over pinned HTTPS, Tailscale, trusted networks.
 - Approvals in the app, plus switching Hermes' global `approvals.mode`.
-- Per-message model picker and reasoning effort.
-- Slash commands and skills, executed on the PC through Hermes' TUI gateway.
-- Following a session that another surface is driving.
+- Model picker and reasoning effort.
 - In-app updates from tagged GitHub Releases.
-- Notifications for app-started runs.
-- Remote desktop hand-off to aFreeRDP (KRdp).
+- 1.0: the phone shares the desktop app's Hermes backend over one WebSocket. Live streaming in both
+  directions, approvals and clarify answerable on either screen, every slash command (including
+  `/retry`, `/undo`, `/btw`), background notifications for finished turns and questions.
 - Windows support (experimental): a host layer, `install.ps1`, a Scheduled Task and a Windows CI
   job. See [PLATFORMS.md](PLATFORMS.md).
 - A demo stack with a synthetic backend, so the app can be tried and recorded without a real
@@ -33,14 +32,12 @@ Tailscale and report back, because CI has neither. The checklist of what is unpr
 **macOS.** The seam exists (`host/macos.py`); the local-network path, a launchd agent and an
 installer are missing. Loopback and Tailscale would already work. Needs a Mac to develop on.
 
-**A real end-to-end test in CI.** The live test exists
-(`android/.../LiveBridgeTest.kt`, `bridge/tests/e2e_live.py`) but needs a real Hermes, so it only
-runs on a maintainer machine. Wiring it to a CI job with the demo backend would let a change to
-the event contract be verified automatically.
+**A real end-to-end test in CI.** The live test exists (`android/.../LiveBridgeTest.kt`) but
+needs a real Hermes, so it only runs on a maintainer machine. Wiring it to a CI job with the demo
+backend would let a change to the event contract be verified automatically.
 
-**Faster approval round-trips.** An approval currently blocks the run until you answer. Pushing
-the pending approval to the phone as a notification, so you can approve from the lock screen,
-would make long tool chains much less painful on mobile.
+**Approve from the lock screen.** The approval notification opens the app today; answering from
+the notification itself would save a step.
 
 **Session search that reaches the server.** Search currently filters the sessions the bridge has
 already listed. Pushing the query into the Hermes sessions API would make it scale to hundreds of
@@ -53,7 +50,7 @@ dock are still phone-sized.
 
 **Multiple PCs.** The app holds one pairing. Supporting several bridges — pick a machine per
 session — is the most-requested thing and the biggest change, because pairing, drafts and the
-"follow another device" logic all assume a single PC.
+live connection all assume a single PC.
 
 **A desktop build.** The UI is Compose and not obviously phone-only. A resizable desktop client
 would reuse the same bridge.

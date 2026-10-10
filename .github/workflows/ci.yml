@@ -290,7 +290,7 @@ jobs:
           #    tray can be running detached, so this is the step that would otherwise orphan one.
           $out = (cmd /c "echo.| `"$root\install.cmd`" -Uninstall" 2>&1 | Out-String)
           Write-Host $out
-          if ($out -notmatch 'API_SERVER_KEY') { throw 'uninstall did not say where the API key is' }
+          if ($out -notmatch 'Paired devices and settings are still in') { throw 'uninstall did not say what it kept' }
           if (Get-ScheduledTask -TaskName 'Hermes Mobile Remote' -ErrorAction SilentlyContinue) { throw 'task still registered' }
           if (Get-Process -Name hermes-remote-bridge -ErrorAction SilentlyContinue) { throw 'bridge still running' }
           $trayLeft = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
