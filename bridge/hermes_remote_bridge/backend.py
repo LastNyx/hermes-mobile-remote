@@ -67,6 +67,8 @@ def ledger_candidates(ledger: Path) -> list[int]:
 def _pid_alive(pid) -> bool:
     if not isinstance(pid, int) or pid <= 0:
         return True  # nothing to check; the HTTP probe decides
+    if os.name == "nt":
+        return _pid_alive_windows(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -74,6 +76,29 @@ def _pid_alive(pid) -> bool:
     except (PermissionError, OSError):
         return True
     return True
+
+
+def _pid_alive_windows(pid: int) -> bool:
+    # os.kill(pid, 0) is no probe on Windows: signal 0 is CTRL_C_EVENT. Ask the kernel instead.
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    process_query_limited_information, still_active, error_access_denied = 0x1000, 259, 5
+    handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
+    if not handle:
+        return ctypes.get_last_error() == error_access_denied  # exists but not ours
+    try:
+        code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return True
+        return code.value == still_active
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 class BackendLocator:
