@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Run the Hermes Remote bridge against a fake, synthetic Hermes API.
+# Run the Hermes Remote bridge against a fake, synthetic Hermes backend.
 #
 # Nothing here touches a real Hermes install: the state directory, devices file, TLS identity,
-# port and API key all live under demo/.state. Use it to try the Android app, to record the
+# spawn ledger and port all live under demo/.state. Use it to try the Android app, to record the
 # demo screenshots, or to work on the UI without burning model calls.
 #
 #   ./demo/run-demo.sh            # start mock Hermes + bridge, print the pairing URL
@@ -15,7 +15,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STATE="$ROOT/demo/.state"
 PORT="${DEMO_PORT:-8765}"
 HERMES_PORT="${DEMO_HERMES_PORT:-8766}"
-KEY="demo-key-not-a-real-secret"
 
 cd "$ROOT"
 
@@ -25,21 +24,19 @@ if [ ! -x bridge/.venv/bin/hermes-remote-bridge ]; then
 fi
 
 mkdir -p "$STATE"
-# The bridge reads the Hermes key from a Hermes-style .env, so give it a demo one.
-printf 'export API_SERVER_KEY=%s\n' "$KEY" > "$STATE/hermes.env"
 
 # A demo config: its own port, its own device registry, LAN on so a phone on the same Wi-Fi
-# can reach it, Tailscale off (the fake backend has no tailnet identity to check).
+# can reach it, Tailscale off (the fake backend has no tailnet identity to check). hermes_home
+# points at the demo's own spawn ledger, which the fake backend registers itself in, exactly as
+# `hermes serve` does; start_hermes = false so the bridge never launches a real Hermes.
 cat > "$STATE/config.toml" <<EOF
 port = $PORT
 listen = ["127.0.0.1"]
 lan = true
 mdns = false
-hermes_url = "http://127.0.0.1:$HERMES_PORT"
-hermes_env = "$STATE/hermes.env"
+hermes_home = "$STATE/hermes-home"
+start_hermes = false
 hermes_bin = "$ROOT/demo/fake-hermes-cli"
-hermes_root = "$ROOT/demo/fake-tui-gateway"
-hermes_python = "$ROOT/bridge/.venv/bin/python"
 allowed_logins = []
 devices_file = "$STATE/devices.json"
 trust_file = "$STATE/networks.json"
@@ -53,11 +50,11 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "Starting the fake Hermes API on 127.0.0.1:$HERMES_PORT ..."
-DEMO_HERMES_PORT="$HERMES_PORT" API_SERVER_KEY="$KEY" \
+echo "Starting the fake hermes serve on 127.0.0.1:$HERMES_PORT ..."
+DEMO_HERMES_PORT="$HERMES_PORT" DEMO_HERMES_HOME="$STATE/hermes-home" \
   bridge/.venv/bin/python demo/mock_hermes.py &
 MOCK_PID=$!
-sleep 1
+sleep 2
 
 # The stub `hermes` CLI (demo/fake-hermes-cli) stores its two settings here, so changing the
 # approval mode in the app never touches the real Hermes configuration.
@@ -69,8 +66,8 @@ export DEMO_HERMES_CONFIG="$STATE/hermes-config.json"
 bridge/.venv/bin/hermes-remote-bridge --config "$STATE/config.toml" trust || true
 
 echo "Starting the bridge on port $PORT ..."
-# demo/serve.py is the real bridge CLI with the Hermes API, Tailscale socket, hermes CLI and
-# TUI gateway swapped for the fakes in this directory.
+# demo/serve.py is the real bridge CLI with the Tailscale socket and the host identity swapped
+# for the fakes in this directory; the backend it finds is the fake one above.
 bridge/.venv/bin/python demo/serve.py --config "$STATE/config.toml" serve &
 BRIDGE_PID=$!
 sleep 3

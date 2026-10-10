@@ -1,7 +1,7 @@
 # The demo
 
 A complete Hermes Remote stack that needs no Hermes, no API keys and no model calls. The bridge,
-the pairing, TLS pinning, device tokens, rate limits and the event stream are all the real
+the pairing, TLS pinning, device tokens, rate limits and the socket relay are all the real
 implementation; only the things behind it are fake.
 
 That makes it useful for three things:
@@ -36,28 +36,29 @@ asks for approval first, which is how the screenshots show the approval dock.
 
 | Piece | In the demo |
 |---|---|
-| `bridge/hermes_remote_bridge/` | **Real.** Every endpoint, gate, limit and the run buffer. |
+| `bridge/hermes_remote_bridge/` | **Real.** Every endpoint, gate, limit and the relay. |
 | Android app | **Real.** The release APK talks to this bridge unmodified. |
 | Pairing, device tokens, TLS pin | **Real.** |
-| Hermes API | Fake: [`mock_hermes.py`](mock_hermes.py) — scripted sessions, models and runs. |
+| `hermes serve` | Fake: [`mock_hermes.py`](mock_hermes.py) — the JSON-RPC socket and REST the bridge uses, with scripted sessions, models and turns. Found through a spawn ledger in `demo/.state`, like the real one. |
 | Tailscale | Fake: [`fake_tailscale.py`](fake_tailscale.py) — invented host, IPs and peers. |
-| `hermes` CLI | Fake: [`fake-hermes-cli`](fake-hermes-cli) — `approvals.mode`, reasoning effort. |
-| Slash commands | Fake: [`fake-tui-gateway/`](fake-tui-gateway/) — a small invented command list. |
-| Your PC's username and Wi-Fi name | Replaced, so they cannot appear in a screenshot. |
+| `hermes` CLI | Fake: [`fake-hermes-cli`](fake-hermes-cli) — `approvals.mode`. |
+| Slash commands | Fake, inside `mock_hermes.py` — a small invented list with canned output. |
+| Your PC's Wi-Fi name | Replaced, so it cannot appear in a screenshot. |
 
 [`serve.py`](serve.py) is the seam: it starts the fakes, points the real bridge at them, and then
 runs the ordinary CLI. Nothing in `bridge/` knows the demo exists.
 
-The fake backend serves the endpoints the bridge actually calls — the same shapes real Hermes
-returns, including the `{"session": {...}}` wrapper the app depends on.
+The fake backend serves what the bridge and the app actually use, in the shapes real Hermes
+returns: `session.create/resume`, `prompt.submit`, streamed events, an approval request answered by
+id, `model.options`, `complete.slash`, and the sessions REST list.
 
 ## Options
 
 | Variable | Default | Effect |
 |---|---|---|
 | `DEMO_PORT` | `8765` | Bridge port. Does not touch your real bridge on 8650. |
-| `DEMO_HERMES_PORT` | `8766` | Port of the fake Hermes API. |
-| `DEMO_SPEED` | `1` | Multiplies every pause in a scripted run. Use `3` when recording. |
+| `DEMO_HERMES_PORT` | `8766` | Port of the fake `hermes serve`. |
+| `DEMO_SPEED` | `1` | Multiplies every pause in a scripted turn. Use `3` when recording. |
 | `DEMO_VERBOSE` | unset | Log the fake backends' requests. |
 
 The demo keeps its own device registry, TLS identity, config and audit log under `demo/.state/`,

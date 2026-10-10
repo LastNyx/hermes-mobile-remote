@@ -196,11 +196,9 @@ def main() -> None:
     shot(out / "07-model-picker.png")
     tap(540, 120, pause=2.0)   # tap the scrim: dismisses the sheet, stays in the app
 
-    print("6. sessions, desktop, system")
+    print("6. sessions, system")
     tab(2)
     shot(out / "08-sessions.png")
-    tab(3)
-    shot(out / "09-desktop.png")
     tab(4)
     shot(out / "10-system.png")
     tab(1)

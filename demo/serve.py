@@ -1,21 +1,19 @@
 """Run the real bridge against the demo's fake backends.
 
 This is what ``demo/run-demo.sh`` starts instead of ``hermes-remote-bridge serve``. It is the
-production bridge, unmodified, with three seams replaced so a demo can never touch or leak the
-real machine:
+production bridge, unmodified, with the seams below replaced so a demo can never touch or leak
+the real machine:
 
-  * the Hermes API        -> demo/mock_hermes.py        (synthetic sessions, models, runs)
+  * hermes serve          -> demo/mock_hermes.py        (found through the demo's spawn ledger)
   * the Tailscale socket  -> demo/fake_tailscale.py     (invented host, peers and IPs)
-  * the PC username and Wi-Fi name the status cards read from the host
-  * the `hermes` CLI      -> demo/fake-hermes-cli        (approvals.mode, reasoning effort)
-  * the TUI gateway       -> demo/fake-tui-gateway      (slash commands)
+  * the PC's Wi-Fi name the status cards read from the host
+  * the `hermes` CLI      -> demo/fake-hermes-cli        (approvals.mode)
 
-Everything else - pairing, device tokens, TLS and its pin, rate limits, the audit log, run
-buffering, SSE replay - is the real implementation.
+Everything else - pairing, device tokens, TLS and its pin, rate limits, the audit log, the relay
+and its method allowlist - is the real implementation.
 """
 from __future__ import annotations
 
-import getpass
 import sys
 from pathlib import Path
 
@@ -28,14 +26,11 @@ from hermes_remote_bridge import app as bridge_app, cli, network, tailnet  # noq
 
 
 def _sanitise_identity() -> None:
-    """Replace the two real-machine values the status screens would otherwise show.
+    """Replace the real-machine value the status screens would otherwise show.
 
-    The RDP card offers ``getpass.getuser()`` and the connection card shows the current
-    network's name. Both come from the host, not from configuration, so a demo would otherwise
-    publish the owner's username and Wi-Fi name in a screenshot.
+    The connection card shows the current network's name. It comes from the host, not from
+    configuration, so a demo would otherwise publish the owner's Wi-Fi name in a screenshot.
     """
-    getpass.getuser = lambda: "demo-user"
-
     real_network_info = network.network_info
 
     def demo_network_info(trust):
