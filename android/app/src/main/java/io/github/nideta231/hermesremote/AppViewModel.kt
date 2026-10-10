@@ -2,6 +2,8 @@ package io.github.nideta231.hermesremote
 
 import android.app.Application
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -9,38 +11,45 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.viewModelScope
 import io.github.nideta231.hermesremote.data.AppUpdate
 import io.github.nideta231.hermesremote.data.BridgeClient
-import io.github.nideta231.hermesremote.data.CommandReply
-import io.github.nideta231.hermesremote.data.REASONING_LEVELS
-import io.github.nideta231.hermesremote.data.SlashCommand
-import io.github.nideta231.hermesremote.data.UpdateEvents
-import io.github.nideta231.hermesremote.data.Updater
 import io.github.nideta231.hermesremote.data.BridgeException
 import io.github.nideta231.hermesremote.data.ChatItem
 import io.github.nideta231.hermesremote.data.ComponentStatus
 import io.github.nideta231.hermesremote.data.CredentialStore
-import io.github.nideta231.hermesremote.data.DesktopInfo
+import io.github.nideta231.hermesremote.data.Dispatch
 import io.github.nideta231.hermesremote.data.DraftStore
 import io.github.nideta231.hermesremote.data.Endpoint
 import io.github.nideta231.hermesremote.data.EndpointResolver
-import io.github.nideta231.hermesremote.data.LanDiscovery
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
-import io.github.nideta231.hermesremote.data.Tailnet
+import io.github.nideta231.hermesremote.data.Gateway
+import io.github.nideta231.hermesremote.data.GatewayState
 import io.github.nideta231.hermesremote.data.HistoryMapper
+import io.github.nideta231.hermesremote.data.Incoming
+import io.github.nideta231.hermesremote.data.LanDiscovery
+import io.github.nideta231.hermesremote.data.LiveLink
 import io.github.nideta231.hermesremote.data.LiveReducer
-import io.github.nideta231.hermesremote.data.coalesceDeltas
-import io.github.nideta231.hermesremote.data.reuseKeys
 import io.github.nideta231.hermesremote.data.ModelCatalog
 import io.github.nideta231.hermesremote.data.ModelOption
 import io.github.nideta231.hermesremote.data.Notifier
-import io.github.nideta231.hermesremote.data.WatchService
 import io.github.nideta231.hermesremote.data.Pairing
-import io.github.nideta231.hermesremote.data.RunSnapshot
+import io.github.nideta231.hermesremote.data.REASONING_LEVELS
+import io.github.nideta231.hermesremote.data.RpcException
 import io.github.nideta231.hermesremote.data.SessionSummary
+import io.github.nideta231.hermesremote.data.SlashSuggestion
+import io.github.nideta231.hermesremote.data.Tailnet
 import io.github.nideta231.hermesremote.data.Transport
 import io.github.nideta231.hermesremote.data.TransportMode
-import io.github.nideta231.hermesremote.data.strings
+import io.github.nideta231.hermesremote.data.UpdateEvents
+import io.github.nideta231.hermesremote.data.Updater
+import io.github.nideta231.hermesremote.data.WatchService
+import io.github.nideta231.hermesremote.data.objects
+import io.github.nideta231.hermesremote.data.parseApproval
+import io.github.nideta231.hermesremote.data.parseCatalog
+import io.github.nideta231.hermesremote.data.parseClarify
+import io.github.nideta231.hermesremote.data.parseDispatch
+import io.github.nideta231.hermesremote.data.parseSuggestions
+import io.github.nideta231.hermesremote.data.reuseKeys
 import io.github.nideta231.hermesremote.data.str
+import io.github.nideta231.hermesremote.data.strings
+import io.github.nideta231.hermesremote.data.withInflight
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -49,29 +58,32 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import java.io.IOException
-import java.util.UUID
 
 enum class Link { IDLE, LIVE, RECONNECTING }
 
 data class ChatState(
+    /** Stored session id: what the sidebar, the desktop and notifications know the chat by. */
     val sessionId: String? = null,
+    /** Hermes' live id for this chat on the shared socket; every RPC and event uses it. */
+    val runtimeId: String? = null,
     val title: String = "New chat",
     val items: List<ChatItem> = emptyList(),
-    val run: RunSnapshot? = null,
+    /** idle, starting, working or waiting (a question is open). Same words as the desktop sidebar. */
+    val status: String = "idle",
     val link: Link = Link.IDLE,
     val loading: Boolean = false,
     val sending: Boolean = false,
-    /** True while the session is being driven from another surface and we are tailing it. */
-    val following: Boolean = false,
-    /** New messages arrived from another surface in the last few polls: something is running there. */
-    val remoteActive: Boolean = false,
     val pinned: Boolean = false,
-    val sessionModel: String? = null,
+    val model: String? = null,
+    val provider: String? = null,
+    val reasoning: String? = null,
     /** Unsent composer text for this session; survives tab switches and process death. */
     val draft: String = "",
 ) {
-    val busy: Boolean get() = run != null && !run.terminal
+    val busy: Boolean get() = status != "idle"
+    val waiting: Boolean get() = status == "waiting" || LiveReducer.openApproval(items) != null || LiveReducer.openClarify(items) != null
 }
 
 data class SessionsState(
@@ -79,6 +91,8 @@ data class SessionsState(
     val loading: Boolean = false,
     val hasMore: Boolean = false,
     val error: String? = null,
+    /** Stored id → live status for sessions doing something right now (the sidebar shimmer). */
+    val live: Map<String, String> = emptyMap(),
 )
 
 /** Which address the app is using, and what else it could use. */
@@ -94,6 +108,9 @@ data class ConnectionState(
     /** Name of the PC's current network and whether the user trusts it (from the bridge). */
     val pcNetwork: String? = null,
     val pcNetworkTrusted: Boolean? = null,
+    /** The live socket to Hermes is up. */
+    val live: Boolean = false,
+    val liveError: String? = null,
 )
 
 data class SystemState(
@@ -115,11 +132,16 @@ data class UpdateState(
     val error: String? = null,
 )
 
+/** An expensive model needs a yes before Hermes switches to it (the desktop asks the same). */
+data class ModelConfirm(val option: ModelOption, val message: String)
+
 class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     private val store = CredentialStore(app)
     private val drafts = DraftStore(app)
     private var bridgeAddresses: Map<String, List<String>>? = null
     private var client: BridgeClient? = null
+    private var gateway: Gateway? = null
+    private var gatewayJobs: List<Job> = emptyList()
 
     private val _pairing = MutableStateFlow(store.load())
     val pairing: StateFlow<Pairing?> = _pairing.asStateFlow()
@@ -133,25 +155,25 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     private val _system = MutableStateFlow(SystemState())
     val system: StateFlow<SystemState> = _system.asStateFlow()
 
-    private val _desktop = MutableStateFlow<Result<DesktopInfo>?>(null)
-    val desktop: StateFlow<Result<DesktopInfo>?> = _desktop.asStateFlow()
-
     private val _models = MutableStateFlow<ModelCatalog?>(null)
     val models: StateFlow<ModelCatalog?> = _models.asStateFlow()
 
     private val _conn = MutableStateFlow(ConnectionState())
     val connection: StateFlow<ConnectionState> = _conn.asStateFlow()
 
-    /** Model picked for the next send; null means "whatever the session already uses". */
+    /** Model for a chat not created yet; an open chat uses (and shows) its own. */
     private val _modelChoice = MutableStateFlow<ModelOption?>(null)
     val modelChoice: StateFlow<ModelOption?> = _modelChoice.asStateFlow()
 
-    /** Reasoning effort for the next send; null means Hermes' configured default. */
+    /** Reasoning effort shown in the composer: the open chat's, or the one for the next new chat. */
     private val _reasoning = MutableStateFlow(store.reasoningEffort)
     val reasoning: StateFlow<String?> = _reasoning.asStateFlow()
 
-    private val _commands = MutableStateFlow<List<SlashCommand>>(emptyList())
-    val commands: StateFlow<List<SlashCommand>> = _commands.asStateFlow()
+    private val _suggestions = MutableStateFlow<List<SlashSuggestion>>(emptyList())
+    val suggestions: StateFlow<List<SlashSuggestion>> = _suggestions.asStateFlow()
+
+    private val _confirm = MutableStateFlow<ModelConfirm?>(null)
+    val confirm: StateFlow<ModelConfirm?> = _confirm.asStateFlow()
 
     /** Set by "/model" with no argument: the UI opens the model picker and clears it. */
     private val _openModelPicker = MutableStateFlow(false)
@@ -161,19 +183,24 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     private val _update = MutableStateFlow(UpdateState(installed = updater.installedVersion))
     val update: StateFlow<UpdateState> = _update.asStateFlow()
 
-    private var followJob: Job? = null
-    private var followCursor = 0
-
     /** One-shot user-facing messages (snackbar). */
     private val _toast = MutableStateFlow<String?>(null)
     val toast: StateFlow<String?> = _toast.asStateFlow()
 
-    private var attachJob: Job? = null
-    private var lastSeq = 0L
+    private var openJob: Job? = null
+    private var suggestJob: Job? = null
+    private var activeJob: Job? = null
+    private var sessionsRefreshJob: Job? = null
 
     private val foregroundObserver = object : DefaultLifecycleObserver {
-        override fun onStart(owner: LifecycleOwner) { onForeground(); startHeartbeat() }
-        override fun onStop(owner: LifecycleOwner) { heartbeatJob?.cancel() }
+        override fun onStart(owner: LifecycleOwner) { onForeground(); startHeartbeat(); startActivePolling() }
+        override fun onStop(owner: LifecycleOwner) {
+            heartbeatJob?.cancel()
+            activeJob?.cancel()
+            // A turn still running: keep the process (and the socket) up so its end or its
+            // question can be notified. The service stops by itself once nothing runs.
+            if (_chat.value.busy || LiveLink.busy.value.isNotEmpty()) WatchService.start(app)
+        }
     }
 
     private var heartbeatJob: Job? = null
@@ -188,13 +215,39 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             while (true) {
                 delay(20_000)
                 val c = client ?: continue
-                if (_conn.value.searching || attachJob?.isActive == true) continue  // a live stream is its own proof
+                if (_conn.value.searching) continue
+                if (gateway?.state?.value == GatewayState.OPEN) {
+                    // On Tailscale: re-ask the bridge which LAN addresses it serves now (the PC may
+                    // have rejoined a trusted network); discoverEndpoints then moves us to the LAN.
+                    if (_conn.value.transport == Transport.TAILNET) discoverEndpoints()
+                    continue
+                }
                 if (!c.reachable() && !c.reachable()) reconnect()
-                // On Tailscale: re-ask the bridge which LAN addresses it serves now (the PC may
-                // have rejoined a trusted network); discoverEndpoints then moves us to the LAN.
-                else if (_conn.value.transport == Transport.TAILNET) discoverEndpoints()
             }
         }
+    }
+
+    /** The sidebar's "working" shimmer: what Hermes is running right now, for every session. */
+    private fun startActivePolling() {
+        activeJob?.cancel()
+        activeJob = viewModelScope.launch {
+            while (true) {
+                refreshActive()
+                delay(4_000)
+            }
+        }
+    }
+
+    private suspend fun refreshActive() {
+        val g = gateway ?: return
+        if (g.state.value != GatewayState.OPEN) return
+        val rows = runCatching { g.call("session.active_list", JSONObject(), 8_000) }.getOrNull() ?: return
+        val live = rows.optJSONArray("sessions").objects().mapNotNull { r ->
+            val status = r.str("status") ?: return@mapNotNull null
+            val key = r.str("session_key")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            if (status == "idle") null else key to status
+        }.toMap()
+        if (live != _sessions.value.live) _sessions.update { it.copy(live = live) }
     }
 
     private val discovery = LanDiscovery(app)
@@ -245,6 +298,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     override fun onCleared() {
         ProcessLifecycleOwner.get().lifecycle.removeObserver(foregroundObserver)
         runCatching { connectivity?.unregisterNetworkCallback(networkCallback) }
+        // LiveLink stays: the notification service may still need the socket.
     }
 
     /** Re-pick the best address: in AUTO the LAN if reachable, else Tailscale. */
@@ -258,18 +312,38 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     private fun start(p: Pairing) {
-        client = BridgeClient(p)
         bridgeAddresses = store.bridgeAddresses
         val savedMode = runCatching { TransportMode.valueOf(store.transportMode.uppercase()) }.getOrDefault(TransportMode.AUTO)
         _conn.update { it.copy(activeUrl = p.url, mode = savedMode, needsRepairForLan = p.pin == null,
             transport = EndpointResolver.transportOf(EndpointResolver.hostOf(p.url).orEmpty())) }
-        viewModelScope.launch {
-            retryPendingSend()
-            store.lastSessionId?.let { openSession(it) }
-        }
+        useClient(BridgeClient(p))
+        store.lastSessionId?.let { openSession(it) }
         refreshSessions()
         refreshStatus()
         discoverEndpoints()
+    }
+
+    /** Point the app (REST and the live socket) at [c]. */
+    private fun useClient(c: BridgeClient) {
+        client = c
+        val g = LiveLink.connect(app, c)
+        if (g === gateway && gatewayJobs.all { it.isActive }) return
+        gatewayJobs.forEach { it.cancel() }
+        gateway = g
+        gatewayJobs = listOf(
+            viewModelScope.launch { g.incoming.collect(::onIncoming) },
+            viewModelScope.launch {
+                g.state.collect { s ->
+                    _conn.update { it.copy(live = s == GatewayState.OPEN, liveError = if (s == GatewayState.OPEN) null else g.lastError) }
+                    _chat.update { it.copy(link = when (s) {
+                        GatewayState.OPEN -> Link.LIVE
+                        GatewayState.CONNECTING, GatewayState.RECONNECTING -> Link.RECONNECTING
+                        else -> Link.IDLE
+                    }) }
+                    if (s == GatewayState.UNAUTHORIZED) _toast.value = g.lastError
+                }
+            },
+        )
     }
 
     /** Ask the bridge what it answers on, so the app can offer LAN/Tailscale without re-pairing. */
@@ -278,15 +352,15 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val me = runCatching { c.me() }.getOrNull()
             val addresses: Map<String, List<String>>? = me?.optJSONObject("addresses")?.let { obj ->
-                mapOf(
-                    "lan" to obj.optJSONArray("lan").strings(),
-                    "tailnet" to obj.optJSONArray("tailnet").strings(),
-                )
+                mapOf("lan" to obj.optJSONArray("lan").strings(), "tailnet" to obj.optJSONArray("tailnet").strings())
             }
             if (addresses == null) {
                 // The saved address is dead (e.g. paired at home, now outside): try the rest.
                 if (me == null && !_conn.value.searching) reconnect()
                 return@launch
+            }
+            if (me.optInt("protocol", 0) < MIN_BRIDGE_PROTOCOL) {
+                _toast.value = "Your PC runs an older bridge. Update it: run install.sh on the PC."
             }
             me.optJSONObject("network")?.let { n ->
                 _conn.update { it.copy(pcNetwork = n.str("name"), pcNetworkTrusted = n.optBoolean("trusted")) }
@@ -294,8 +368,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             bridgeAddresses = addresses
             store.bridgeAddresses = addresses
             _conn.update { st ->
-                st.copy(lanAvailable = addresses["lan"].orEmpty().isNotEmpty(),
-                    tailnetAvailable = addresses["tailnet"].orEmpty().isNotEmpty())
+                st.copy(lanAvailable = addresses["lan"].orEmpty().isNotEmpty(), tailnetAvailable = addresses["tailnet"].orEmpty().isNotEmpty())
             }
             preferLanIfBack()
         }
@@ -314,7 +387,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
 
     /** Manual override: try only this transport, and remember the choice. */
     fun useTransport(transport: Transport) {
-        val p = _pairing.value ?: return
+        _pairing.value ?: return
         val mode = when (transport) {
             Transport.LAN -> TransportMode.LAN
             Transport.TAILNET -> TransportMode.TAILNET
@@ -333,8 +406,6 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     /** Try each candidate address in order; the first that answers wins. */
     private fun switchTo(force: Transport?) {
         val p = _pairing.value ?: return
-        attachJob?.cancel()
-        followJob?.cancel()
         _conn.update { it.copy(searching = true) }
         viewModelScope.launch {
             var last: Throwable? = null
@@ -345,12 +416,10 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
                     val candidate = p.copy(url = ep.url)
                     try {
                         if (!BridgeClient(candidate).reachable()) { last = IOException("${ep.label} is not reachable"); continue }
-                        client = BridgeClient(candidate)
                         _conn.update { it.copy(activeUrl = ep.url, transport = ep.transport, searching = false) }
                         if (_pairing.value?.url != ep.url) _pairing.update { it?.copy(url = ep.url) }
                         store.save(clientPairing())
-                        retryPendingSend()
-                        store.lastSessionId?.let { openSession(it) }
+                        useClient(BridgeClient(candidate))
                         refreshSessions()
                         refreshStatus()
                         discoverEndpoints()
@@ -400,11 +469,17 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             "unauthorized" -> "This device was revoked or the token is wrong. Pair again."
             "forbidden_peer" -> "Bridge refused this Tailscale identity."
             "forbidden_network" -> "The PC doesn't serve this network. On a network you trust, run `hermes-remote-bridge trust` on the PC."
-            "session_busy" -> "This session is still running."
+            "hermes_unavailable" -> "Hermes isn't running on the PC."
             else -> t.message ?: t.code
         }
+        is RpcException -> when (t.code) {
+            4009 -> "Wait for the current reply to finish first."
+            4023 -> "That chat is open somewhere; close it there first."
+            else -> t.message ?: "Hermes refused that (${t.code})."
+        }
         is javax.net.ssl.SSLException -> "That address isn't your PC (certificate mismatch). Nothing was sent."
-        is IOException -> "Can't reach the PC on this network, and Tailscale isn't answering either."
+        is IOException -> t.message?.takeIf { it.isNotBlank() && !it.startsWith("closed") }
+            ?: "Can't reach the PC on this network, and Tailscale isn't answering either."
         else -> t.message ?: t.javaClass.simpleName
     }
 
@@ -435,45 +510,225 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun unpair() {
-        attachJob?.cancel()
+        gatewayJobs.forEach { it.cancel() }
+        gatewayJobs = emptyList()
+        LiveLink.close()
+        gateway = null
         store.clear()
         client = null
         _pairing.value = null
         _chat.value = ChatState()
         _sessions.value = SessionsState()
         _system.value = SystemState()
-        _desktop.value = null
     }
 
     // ------------------------------------------------------------ app lifecycle
 
-    /** Called when the app returns to the foreground: re-sync whatever may have changed meanwhile. */
+    /** Back on screen: the socket may have died while the process was frozen. Catch up. */
     fun onForeground() {
-        val c = client ?: return
-        viewModelScope.launch { retryPendingSend() }
-        // Networks change while the app is closed: re-check which address to use.
+        client ?: return
+        gateway?.nudge()
         discoverEndpoints()
+        refreshSessions()
+        refreshStatus()
         val sid = _chat.value.sessionId
-        if (sid != null && attachJob?.isActive != true) {
-            viewModelScope.launch {
-                try {
-                    val (_, active) = c.session(sid)
-                    if (active != null || _chat.value.busy) reloadSession(sid, active)
-                } catch (t: Throwable) { if (t is CancellationException) throw t }
+        if (sid != null && gateway?.state?.value == GatewayState.OPEN) viewModelScope.launch { resume(sid) }
+    }
+
+    // ------------------------------------------------------------ the live socket
+
+    private val pendingEvents = ArrayList<Incoming.Event>()
+    private var flushJob: Job? = null
+
+    private fun onIncoming(inc: Incoming) {
+        when (inc) {
+            is Incoming.Open -> {
+                // Fresh socket: re-attach the open chat (its runtime may be new) and catch up.
+                _chat.value.sessionId?.let { sid -> viewModelScope.launch { resume(sid) } }
+                viewModelScope.launch { refreshActive() }
+            }
+            is Incoming.Event -> {
+                if (inc.type == "sessions.changed") return scheduleSessionsRefresh()
+                if (inc.sessionId.isEmpty() || inc.sessionId != _chat.value.runtimeId) return
+                pendingEvents += inc
+                // Streamed text is applied once per frame-ish (32 ms), not per token: recomposing
+                // the whole list per token is what made text stutter. Anything else flushes now.
+                if (inc.type in STREAM_EVENTS) {
+                    if (flushJob == null) flushJob = viewModelScope.launch { delay(32); flushJob = null; flushEvents() }
+                } else {
+                    flushJob?.cancel(); flushJob = null
+                    flushEvents()
+                }
+            }
+            is Incoming.Request -> {
+                val rid = inc.params.str("session_id")
+                if (rid == null || rid != _chat.value.runtimeId) return
+                flushEvents()
+                when (inc.method) {
+                    "approval" -> _chat.update { it.copy(items = LiveReducer.withApproval(it.items, parseApproval(inc.id, inc.params)), status = "waiting") }
+                    "clarify" -> _chat.update { it.copy(items = LiveReducer.withClarify(it.items, parseClarify(inc.id, inc.params)), status = "waiting") }
+                    // Secrets, sudo passwords and vault prompts are answered on the PC, never typed on a phone.
+                    else -> _chat.update { it.copy(items = it.items + ChatItem.Notice("ask-${inc.id}",
+                        "Hermes is asking for something only the PC can answer (${inc.method}). Answer it in the desktop app.")) }
+                }
             }
         }
-        refreshStatus()
+    }
+
+    private fun flushEvents() {
+        if (pendingEvents.isEmpty()) return
+        val batch = pendingEvents.toList()
+        pendingEvents.clear()
+        var finished = false
+        _chat.update { st ->
+            var items = st.items
+            var status = st.status
+            var title = st.title
+            var model = st.model
+            var provider = st.provider
+            var reasoning = st.reasoning
+            for (ev in batch) {
+                val key = "${ev.seq ?: System.nanoTime()}"
+                when (ev.type) {
+                    "message.start" -> status = "working"
+                    "message.complete" -> { status = "idle"; finished = true }
+                    "request.cancel" -> {
+                        val id = ev.payload.str("id")
+                        if (id != null) {
+                            val why = ev.payload.str("reason").orEmpty()
+                            items = LiveReducer.resolve(items, id, if ("elsewhere" in why || "answered" in why) "answered on another screen" else "withdrawn")
+                            LiveLink.answered(app, id)
+                        }
+                        if (status == "waiting") status = "working"
+                    }
+                    "session.title" -> ev.payload.str("title")?.takeIf { it.isNotBlank() }?.let { title = it }
+                    "session.info" -> {
+                        ev.payload.str("model")?.takeIf { it.isNotBlank() }?.let { model = it }
+                        ev.payload.str("provider")?.takeIf { it.isNotBlank() }?.let { provider = it }
+                        ev.payload.str("reasoning_effort")?.let { reasoning = it.ifBlank { null } }
+                        ev.payload.str("title")?.takeIf { it.isNotBlank() }?.let { title = it }
+                        if (ev.payload.has("running")) {
+                            val running = ev.payload.optBoolean("running")
+                            if (running && status == "idle") status = "working"
+                        }
+                    }
+                }
+                items = LiveReducer.apply(items, ev.type, ev.payload, key)
+            }
+            st.copy(items = items, status = status, title = title, model = model, provider = provider, reasoning = reasoning)
+        }
+        _reasoning.value = _chat.value.reasoning ?: _reasoning.value
+        if (finished) { scheduleSessionsRefresh(); viewModelScope.launch { refreshActive() } }
+    }
+
+    private fun scheduleSessionsRefresh() {
+        sessionsRefreshJob?.cancel()
+        sessionsRefreshJob = viewModelScope.launch { delay(600); refreshSessions(quiet = true) }
+    }
+
+    /**
+     * Attach to [storedId] on the shared socket and show it as it is right now: the transcript,
+     * the turn in flight (if the desktop or the phone is running one) and any open question.
+     * Hermes then streams every further event of this session to us, wherever it was started.
+     */
+    private suspend fun resume(storedId: String): Boolean {
+        val g = gateway ?: return false
+        return try {
+            val r = g.call("session.resume", JSONObject().put("session_id", storedId).put("cols", 96), 60_000)
+            if (_chat.value.sessionId != storedId) return false
+            val rid = r.getString("session_id")
+            val info = r.optJSONObject("info") ?: JSONObject()
+            val running = r.optBoolean("running") || info.optBoolean("running")
+            var items = HistoryMapper.map(r.optJSONArray("messages"))
+            if (running) items = withInflight(items, r.optJSONObject("inflight"))
+            var waiting = false
+            r.optJSONArray("open_requests").objects().forEach { q ->
+                val id = q.str("id") ?: return@forEach
+                val params = q.optJSONObject("params") ?: JSONObject()
+                when (q.str("method")) {
+                    "approval" -> { items = LiveReducer.withApproval(items, parseApproval(id, params)); waiting = true }
+                    "clarify" -> { items = LiveReducer.withClarify(items, parseClarify(id, params)); waiting = true }
+                }
+            }
+            val title = info.str("title")?.takeIf { it.isNotBlank() }
+            LiveLink.watch(rid, storedId, title ?: _chat.value.title)
+            pendingEvents.clear()
+            _chat.update { st ->
+                st.copy(runtimeId = rid, items = reuseKeys(st.items, items), loading = false,
+                    status = when { waiting -> "waiting"; running -> "working"; else -> "idle" },
+                    title = title ?: st.title, model = info.str("model") ?: st.model, provider = info.str("provider") ?: st.provider,
+                    reasoning = info.str("reasoning_effort")?.ifBlank { null } ?: st.reasoning)
+            }
+            _chat.value.reasoning?.let { _reasoning.value = it }
+            true
+        } catch (t: Throwable) {
+            if (t is CancellationException) throw t
+            _chat.update { it.copy(loading = false) }
+            if (t is RpcException && _chat.value.sessionId == storedId) {
+                // Deleted elsewhere: forget it instead of retrying forever.
+                store.lastSessionId = null
+                drafts.clear(storedId)
+                _chat.value = ChatState(draft = drafts.get(null))
+            }
+            say(t)
+            false
+        }
+    }
+
+    /** The runtime id to send to, attaching (or creating the chat) first when needed. */
+    private suspend fun ensureLive(firstText: String?): String {
+        val g = gateway ?: throw IOException("Not connected to your PC")
+        _chat.value.runtimeId?.let { return it }
+        _chat.value.sessionId?.let { sid ->
+            if (resume(sid)) _chat.value.runtimeId?.let { return it }
+            throw IOException("Couldn't open this chat on the PC")
+        }
+        val choice = _modelChoice.value
+        val params = JSONObject().put("source", "desktop").put("cols", 96).apply {
+            choice?.let { put("model", it.id).put("provider", it.provider) }
+            _reasoning.value?.let { put("reasoning_effort", it) }
+        }
+        val r = g.call("session.create", params, 60_000)
+        val rid = r.getString("session_id")
+        val stored = r.str("stored_session_id") ?: rid
+        val info = r.optJSONObject("info") ?: JSONObject()
+        store.lastSessionId = stored
+        // The draft was keyed to "no session yet"; move it to the real id.
+        val carried = _chat.value.draft
+        if (carried.isNotEmpty() && carried.trim() != firstText?.trim()) drafts.put(stored, carried)
+        drafts.clear(null)
+        LiveLink.watch(rid, stored, null)
+        _chat.update { it.copy(sessionId = stored, runtimeId = rid, model = info.str("model") ?: it.model,
+            provider = info.str("provider") ?: it.provider) }
+        _modelChoice.value = null
+        scheduleSessionsRefresh()
+        return rid
+    }
+
+    /** One RPC on the open chat; a runtime Hermes reaped meanwhile is re-attached once. */
+    private suspend fun rpc(method: String, params: (String) -> JSONObject, timeoutMs: Long = 30_000): JSONObject {
+        val g = gateway ?: throw IOException("Not connected to your PC")
+        val rid = ensureLive(null)
+        return try {
+            g.call(method, params(rid), timeoutMs)
+        } catch (e: RpcException) {
+            if (e.code != 4001) throw e
+            _chat.update { it.copy(runtimeId = null) }
+            g.call(method, params(ensureLive(null)), timeoutMs)
+        }
     }
 
     // ------------------------------------------------------------ sessions
 
-    fun refreshSessions() {
+    fun refreshSessions(quiet: Boolean = false) {
         val c = client ?: return
-        _sessions.update { it.copy(loading = true, error = null) }
+        if (!quiet) _sessions.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
             try {
                 val (list, more) = c.sessions(50, 0)
-                _sessions.value = SessionsState(list, false, more)
+                _sessions.update { it.copy(items = list, loading = false, hasMore = more, error = null) }
+                val open = list.firstOrNull { it.id == _chat.value.sessionId }
+                if (open != null) _chat.update { it.copy(pinned = open.pinned, title = if (it.title == "New chat") open.displayTitle else it.title) }
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 _sessions.update { it.copy(loading = false, error = describe(t)) }
@@ -489,7 +744,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val (list, more) = c.sessions(50, cur.items.size)
-                _sessions.update { s -> SessionsState((s.items + list).distinctBy { it.id }, false, more) }
+                _sessions.update { s -> s.copy(items = (s.items + list).distinctBy { it.id }, loading = false, hasMore = more) }
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 _sessions.update { it.copy(loading = false, error = describe(t)) }
@@ -498,97 +753,31 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun newChat() {
-        attachJob?.cancel()
-        followJob?.cancel()
+        openJob?.cancel()
         store.lastSessionId = null
-        _chat.value = ChatState(draft = drafts.get(null))
+        _chat.value = ChatState(draft = drafts.get(null), link = _chat.value.link, reasoning = store.reasoningEffort)
+        _reasoning.value = store.reasoningEffort
     }
 
     /** Save unsent composer text. Called on every keystroke; cheap enough to be synchronous. */
     fun setDraft(text: String) {
         drafts.put(_chat.value.sessionId, text)
         _chat.update { it.copy(draft = text) }
+        updateSuggestions(text)
     }
 
     fun openSession(id: String) {
         Notifier.clearSession(app, id)
-        if (_chat.value.sessionId == id && (attachJob?.isActive == true || followJob?.isActive == true || _chat.value.items.isNotEmpty())) return
-        attachJob?.cancel()
-        followJob?.cancel()
+        if (_chat.value.sessionId == id && _chat.value.runtimeId != null) return
+        openJob?.cancel()
         store.lastSessionId = id
-        _chat.value = ChatState(sessionId = id, loading = true, draft = drafts.get(id))
-        viewModelScope.launch { reloadSession(id, null, fetchActive = true) }
-    }
-
-    private suspend fun reloadSession(id: String, knownActive: RunSnapshot?, fetchActive: Boolean = true) {
-        val c = client ?: return
-        try {
-            val (summary, active) = if (fetchActive) c.session(id) else (null to knownActive)
-            val history = c.messages(id)
-            val run = active ?: knownActive
-            if (run != null && !run.terminal) {
-                // Rebuild the in-flight turn from a full event replay so nothing is lost or doubled.
-                val base = HistoryMapper.map(HistoryMapper.withoutLastTurn(history))
-                val userText = HistoryMapper.lastUserText(history)
-                val items = if (userText != null) base + ChatItem.User("u-${run.runId}", userText) else base
-                _chat.update { it.copy(sessionId = id, title = summary?.displayTitle ?: it.title, items = items,
-                    run = run, loading = false, pinned = summary?.pinned ?: false,
-                    sessionModel = summary?.model, following = false, remoteActive = false) }
-                attach(run, fromSeq = 0)
-            } else {
-                _chat.update { it.copy(sessionId = id, title = summary?.displayTitle ?: it.title,
-                    items = HistoryMapper.map(history), run = null, link = Link.IDLE, loading = false,
-                    pinned = summary?.pinned ?: false, sessionModel = summary?.model) }
-                // The session may be mid-turn on the desktop or a messaging platform. Tail it so the
-                // phone follows that conversation instead of showing a frozen snapshot.
-                followCursor = history.length()
-                startFollowing(id)
-            }
-        } catch (t: Throwable) {
-            if (t is CancellationException) throw t
-            _chat.update { it.copy(loading = false) }
-            if (t is BridgeException && t.httpCode == 404) {
-                store.lastSessionId = null
-                drafts.clear(id)
-                _chat.value = ChatState()
-            }
-            say(t)
-        }
-    }
-
-    /**
-     * Poll a session another surface is driving. The bridge's sync route returns only
-     * messages appended since our cursor, so nothing is duplicated or skipped; when the
-     * bridge itself takes over the session (our own run), polling stops.
-     */
-    private fun startFollowing(id: String) {
-        followJob?.cancel()
-        val c = client ?: return
-        followJob = viewModelScope.launch {
-            _chat.update { it.copy(following = true) }
-            var idle = 0
-            while (true) {
-                delay(if (idle < 3) 2000 else 5000)
-                if (_chat.value.sessionId != id || _chat.value.busy) return@launch
-                val s = try {
-                    c.sync(id, followCursor)
-                } catch (t: Throwable) {
-                    if (t is CancellationException) throw t
-                    if (t is BridgeException) return@launch // gone or unauthorized: stop polling
-                    idle++
-                    continue
-                }
-                if (_chat.value.sessionId != id) return@launch
-                followCursor = s.cursor
-                if (s.changed && s.messages.isNotEmpty()) {
-                    idle = 0
-                    val fresh = HistoryMapper.map(org.json.JSONArray().also { a -> s.messages.forEach(a::put) })
-                    _chat.update { st -> st.copy(items = st.items + fresh, sessionModel = s.model ?: st.sessionModel, remoteActive = true) }
-                } else {
-                    idle++
-                    if (idle >= 3 && _chat.value.remoteActive) _chat.update { it.copy(remoteActive = false) }
-                }
-            }
+        val summary = _sessions.value.items.firstOrNull { it.id == id }
+        _chat.value = ChatState(sessionId = id, loading = true, draft = drafts.get(id), link = _chat.value.link,
+            title = summary?.displayTitle ?: "Loading…", pinned = summary?.pinned ?: false, model = summary?.model)
+        openJob = viewModelScope.launch {
+            // The socket may still be opening (app start): wait for it rather than failing.
+            repeat(40) { if (gateway?.state?.value == GatewayState.OPEN) return@repeat; delay(250) }
+            resume(id)
         }
     }
 
@@ -616,344 +805,298 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun loadModels() {
-        val c = client ?: return
-        if (_models.value != null) return
-        viewModelScope.launch {
-            try {
-                _models.value = c.models()
-            } catch (t: Throwable) {
-                if (t is CancellationException) throw t
-                say(t)
-            }
-        }
-    }
-
-    fun chooseModel(option: ModelOption?) {
-        _modelChoice.value = option
-    }
-
     fun rename(id: String, title: String) {
         val c = client ?: return
         viewModelScope.launch {
             try {
                 c.renameSession(id, title)
                 if (_chat.value.sessionId == id) _chat.update { it.copy(title = title) }
-                refreshSessions()
+                refreshSessions(quiet = true)
             } catch (t: Throwable) { say(t) }
         }
     }
 
     fun delete(id: String) {
-        val c = client ?: return
+        val g = gateway ?: return
         viewModelScope.launch {
             try {
-                c.deleteSession(id)
+                if (_chat.value.sessionId == id) {
+                    // Hermes refuses to delete a chat it holds open; let go of ours first.
+                    _chat.value.runtimeId?.let { rid -> runCatching { g.call("session.close", JSONObject().put("session_id", rid)) } }
+                    newChat()
+                }
+                g.call("session.delete", JSONObject().put("session_id", id))
                 _sessions.update { s -> s.copy(items = s.items.filterNot { it.id == id }) }
                 drafts.clear(id)
-                if (_chat.value.sessionId == id) newChat()
-                refreshSessions()
+                refreshSessions(quiet = true)
             } catch (t: Throwable) { say(t) }
         }
     }
 
-    // ------------------------------------------------------------ runs
+    // ------------------------------------------------------------ turns
 
     fun send(text: String) {
         val trimmed = text.trim()
+        if (trimmed.isEmpty()) return
         if (trimmed.startsWith("/") && !trimmed.startsWith("//")) return runSlash(trimmed)
         sendMessage(trimmed.removePrefix("/"), trimmed.removePrefix("/"))
     }
 
-    /** Starts a run with [text]; the chat shows [display] (what the user typed) for it. */
+    /** Submits [text]; the chat shows [display] (what the user typed) for it. */
     private fun sendMessage(text: String, display: String) {
-        val c = client ?: return
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
-        if (_chat.value.busy || _chat.value.sending) {
-            // Never drop a send silently: the text stays in the composer and the snackbar says
-            // why, so a tap that lands while the last message is still on its way cannot read as
-            // "it was never sent".
-            _toast.value = if (_chat.value.sending) "Still sending your last message…"
-                           else "A task is still running here — wait for it, or stop it."
+        if (_chat.value.sending) {
+            // Never drop a send silently: the text stays in the composer and the snackbar says why.
+            _toast.value = "Still sending your last message…"
             return
         }
-        val requestId = UUID.randomUUID().toString().replace("-", "")
+        val key = "u-${System.nanoTime()}"
+        _suggestions.value = emptyList()
         _chat.update { it.copy(sending = true, draft = if (it.draft.trim() == display.trim()) "" else it.draft,
-            items = it.items + ChatItem.User("u-$requestId", display, pending = true)) }
+            items = it.items + ChatItem.User(key, display, pending = true)) }
+        drafts.put(_chat.value.sessionId, _chat.value.draft)
         viewModelScope.launch {
             try {
-                val sid = _chat.value.sessionId ?: c.createSession(display.lineSequence().first().take(60)).also { s ->
-                    store.lastSessionId = s.id
-                    // The draft was keyed to "no session yet"; move it to the real id so it comes
-                    // back if the user switches tabs mid-turn.
-                    val carried = _chat.value.draft
-                    if (carried.isNotEmpty() && carried != display) drafts.put(s.id, carried)
-                    drafts.clear(null)
-                    _chat.update { it.copy(sessionId = s.id, title = s.displayTitle) }
-                }.id
-                store.pendingSend = Triple(requestId, sid, trimmed)
-                followJob?.cancel() // we own this session now; stop tailing the other surface
-                val run = startWithRetry(c, sid, trimmed, requestId)
-                store.pendingSend = null
+                val res = rpc("prompt.submit", { rid -> JSONObject().put("session_id", rid).put("text", trimmed) }, 30_000)
+                val status = res.str("status")
                 _chat.update { st ->
-                    st.copy(sending = false, run = run, following = false, remoteActive = false,
-                        items = st.items.map { if (it is ChatItem.User && it.key == "u-$requestId") it.copy(pending = false) else it })
+                    st.copy(sending = false, status = if (st.status == "idle") "working" else st.status,
+                        items = st.items.map { if (it is ChatItem.User && it.key == key) it.copy(pending = false) else it }.let { items ->
+                            when (status) {
+                                // Folded into the running turn: not a turn of its own.
+                                "steered", "redirected" -> items.filterNot { it.key == key } +
+                                    ChatItem.Notice("$key-n", (if (status == "steered") "Steer: " else "Redirect: ") + display)
+                                "queued" -> items + ChatItem.Notice("$key-n", "Queued: runs after the current reply.")
+                                else -> items
+                            }
+                        })
                 }
-                attach(run, fromSeq = 0)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
-                // Retryable failures keep pendingSend so the next foreground resends with the same
-                // id and the message reappears from history; anything else is final, so the text
-                // goes back to the composer rather than vanishing with the failed bubble.
-                if (t !is IOException) store.pendingSend = null
+                // The text goes back to the composer rather than vanishing with the failed bubble.
                 _chat.update { st ->
-                    st.copy(sending = false, items = st.items.filterNot { it.key == "u-$requestId" },
-                        draft = if (t is IOException || st.draft.isNotEmpty()) st.draft else display)
+                    st.copy(sending = false, items = st.items.filterNot { it.key == key },
+                        draft = if (st.draft.isNotEmpty()) st.draft else display)
                 }
+                drafts.put(_chat.value.sessionId, _chat.value.draft)
                 say(t)
-                // A busy session is not a dead end: show the run that blocks the send, so its
-                // approval or stop button is right there instead of an unexplained refusal.
-                if (t is BridgeException && t.code == "session_busy") showBusyRun()
             }
-        }
-    }
-
-    private suspend fun startWithRetry(c: BridgeClient, sid: String, text: String, requestId: String): RunSnapshot {
-        val choice = _modelChoice.value
-        repeat(5) {
-            try {
-                return c.startRun(sid, text, requestId, choice?.id, choice?.provider, _reasoning.value)
-            } catch (e: IOException) {
-                delay(700)
-            }
-        }
-        return c.startRun(sid, text, requestId, choice?.id, choice?.provider, _reasoning.value)
-    }
-
-    private suspend fun retryPendingSend() {
-        val c = client ?: return
-        val (requestId, sid, text) = store.pendingSend ?: return
-        try {
-            val run = c.startRun(sid, text, requestId) // dedup: returns the existing run if it was accepted
-            store.pendingSend = null
-            if (_chat.value.sessionId == sid || _chat.value.sessionId == null) {
-                store.lastSessionId = sid
-                _chat.update { it.copy(sessionId = sid) }
-                reloadSession(sid, run)
-            }
-        } catch (t: Throwable) {
-            if (t is CancellationException) throw t
-            if (t !is IOException) store.pendingSend = null
-            if (t is BridgeException && t.code == "session_busy" && _chat.value.sessionId == sid) showBusyRun()
-        }
-    }
-
-    /** After a 409 from a busy session, show the run that blocks the send: its approval dock or
-     *  stop button explains the refusal and gives the next step, instead of "it didn't send". */
-    private fun showBusyRun() {
-        val sid = _chat.value.sessionId ?: return
-        viewModelScope.launch { reloadSession(sid, null, fetchActive = true) }
-    }
-
-    private fun attach(run: RunSnapshot, fromSeq: Long) {
-        val c = client ?: return
-        attachJob?.cancel()
-        // The service, not this stream, decides when to notify: this stream also keeps running
-        // in the background and would otherwise always see the end first. Idempotent per run.
-        if (!run.terminal) WatchService.start(app, run.runId, run.sessionId ?: _chat.value.sessionId, _chat.value.title)
-        lastSeq = fromSeq
-        attachJob = viewModelScope.launch {
-            var backoff = 1000L
-            var finished = false
-            while (!finished) {
-                try {
-                    _chat.update { it.copy(link = Link.LIVE) }
-                    c.events(run.runId, lastSeq).coalesceDeltas().collect { ev ->
-                        if (ev.id <= lastSeq) return@collect // never apply an event twice
-                        lastSeq = ev.id
-                        backoff = 1000L
-                        if (ev.name == "bridge.resync") return@collect
-                        _chat.update { st ->
-                            val status = when {
-                                ev.name.startsWith("run.") && ev.name.removePrefix("run.") in RunSnapshot.TERMINAL_STATUSES ->
-                                    ev.name.removePrefix("run.")
-                                ev.name == "approval.request" -> "waiting_for_approval"
-                                ev.name == "approval.responded" -> "running"
-                                else -> st.run?.status ?: "running"
-                            }
-                            st.copy(items = LiveReducer.apply(st.items, ev), run = st.run?.copy(status = status, lastSeq = ev.id))
-                        }
-                    }
-                    // Stream ended cleanly: the bridge closes it right after the terminal event.
-                    val snap = c.run(run.runId)
-                    if (snap.terminal) finished = true
-                } catch (t: Throwable) {
-                    if (t is CancellationException) throw t
-                    if (t is BridgeException && t.httpCode == 404) { finished = true; break }
-                    _chat.update { it.copy(link = Link.RECONNECTING) }
-                    delay(backoff)
-                    backoff = (backoff * 2).coerceAtMost(15_000)
-                }
-            }
-            // The persisted history is the source of truth once the run settles.
-            val sid = run.sessionId ?: _chat.value.sessionId
-            _chat.update { it.copy(link = Link.IDLE, run = it.run?.let { r -> if (r.terminal) r else r.copy(status = "completed") }) }
-            if (sid != null && _chat.value.sessionId == sid) {
-                try {
-                    val history = c.messages(sid)
-                    _chat.update { st ->
-                        val notice = st.items.lastOrNull() as? ChatItem.Notice
-                        val mapped = reuseKeys(st.items, HistoryMapper.map(history))
-                        st.copy(items = if (notice != null) mapped + notice else mapped, run = null)
-                    }
-                } catch (t: Throwable) { if (t is CancellationException) throw t }
-            }
-            refreshSessions()
         }
     }
 
     fun stop() {
-        val c = client ?: return
-        val run = _chat.value.run ?: return
         viewModelScope.launch {
-            try { c.stop(run.runId); _chat.update { it.copy(run = it.run?.copy(status = "stopping")) } } catch (t: Throwable) { say(t) }
+            try { rpc("session.interrupt", { JSONObject().put("session_id", it) }) } catch (t: Throwable) { say(t) }
         }
     }
 
     fun steer(text: String) {
-        val c = client ?: return
-        val run = _chat.value.run
-        if (run == null) {
-            _toast.value = "There's no running task to steer."
-            return
-        }
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
+        if (!_chat.value.busy) return send(trimmed)
+        _chat.update { it.copy(draft = if (it.draft.trim() == trimmed) "" else it.draft) }
+        drafts.put(_chat.value.sessionId, _chat.value.draft)
         viewModelScope.launch {
             try {
-                c.steer(run.runId, trimmed)
-                _chat.update { it.copy(draft = if (it.draft.trim() == trimmed) "" else it.draft,
-                    items = it.items + ChatItem.Notice("steer-${System.nanoTime()}", "Steer: $trimmed")) }
+                rpc("session.steer", { JSONObject().put("session_id", it).put("text", trimmed) })
+                _chat.update { it.copy(items = it.items + ChatItem.Notice("steer-${System.nanoTime()}", "Steer: $trimmed")) }
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _chat.update { st -> st.copy(draft = st.draft.ifEmpty { trimmed }) }
+                say(t)
+            }
+        }
+    }
+
+    /** Answer the open approval: once, session, always or deny. Whichever screen answers first wins. */
+    fun answerApproval(choice: String) {
+        val g = gateway ?: return
+        val open = LiveReducer.openApproval(_chat.value.items) ?: return
+        if (!g.reply(open.request.id, JSONObject().put("choice", choice))) return say(IOException("Not connected to your PC"))
+        LiveLink.answered(app, open.request.id)
+        _chat.update { it.copy(items = LiveReducer.resolve(it.items, open.request.id, choice), status = "working") }
+    }
+
+    /** Answer the open clarify question(s). [answers] maps qid → answer for a batch; one entry otherwise. */
+    fun answerClarify(answers: List<String>) {
+        val g = gateway ?: return
+        val open = LiveReducer.openClarify(_chat.value.items) ?: return
+        val r = open.request
+        val result = if (r.batch) JSONObject().put("answers", JSONObject().apply {
+            r.questions.forEachIndexed { i, q -> put(q.qid ?: "q$i", answers.getOrNull(i).orEmpty()) }
+        }) else JSONObject().put("answer", answers.firstOrNull().orEmpty())
+        if (!g.reply(r.id, result)) return say(IOException("Not connected to your PC"))
+        LiveLink.answered(app, r.id)
+        _chat.update { it.copy(items = LiveReducer.resolve(it.items, r.id, answers.joinToString(" · ").ifBlank { "(skipped)" }), status = "working") }
+    }
+
+    // ------------------------------------------------------------ models + reasoning
+
+    fun loadModels() {
+        val g = gateway ?: return
+        viewModelScope.launch {
+            try {
+                val params = JSONObject().apply { _chat.value.runtimeId?.let { put("session_id", it) } }
+                _models.value = parseCatalog(g.call("model.options", params, 30_000))
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                say(t)
+            }
+        }
+    }
+
+    /** The model shown in the composer: the open chat's own, or the pick for the next new chat. */
+    fun shownModel(catalog: ModelCatalog?, st: ChatState): ModelOption? {
+        if (st.sessionId == null) return _modelChoice.value
+        val m = st.model ?: return null
+        return catalog?.options?.firstOrNull { it.id == m && (st.provider == null || it.provider == st.provider) }
+            ?: ModelOption(st.provider.orEmpty(), st.provider.orEmpty(), m, m.substringAfterLast('/'), true)
+    }
+
+    /** Switch model. For an open chat the switch is Hermes' own (`config.set model … --session`). */
+    fun chooseModel(option: ModelOption?, confirmed: Boolean = false) {
+        _confirm.value = null
+        if (_chat.value.sessionId == null) { _modelChoice.value = option; return }
+        option ?: return
+        viewModelScope.launch {
+            try {
+                val res = rpc("config.set", { rid ->
+                    JSONObject().put("session_id", rid).put("key", "model").put("value", "${option.id} --provider ${option.provider} --session")
+                        .apply { if (confirmed) put("confirm_expensive_model", true) }
+                })
+                if (res.optBoolean("confirm_required")) {
+                    _confirm.value = ModelConfirm(option, res.str("confirm_message") ?: "This model is expensive. Switch anyway?")
+                    return@launch
+                }
+                _chat.update { it.copy(model = option.id, provider = option.provider) }
+                res.str("warning")?.takeIf { it.isNotBlank() }?.let { _toast.value = it }
+                if (res.optBoolean("deferred")) _toast.value = "Switches after the current reply."
             } catch (t: Throwable) { say(t) }
         }
     }
 
-    fun answerApproval(choice: String) {
-        val c = client ?: return
-        val run = _chat.value.run ?: return
-        val pending = _chat.value.items.lastOrNull { it is ChatItem.Approval && it.decided == null } as? ChatItem.Approval
-        viewModelScope.launch {
-            try { c.approve(run.runId, choice, pending?.request?.requestId) } catch (t: Throwable) { say(t) }
-        }
-    }
-
-    // ------------------------------------------------------------ slash commands + reasoning
-
-    fun loadCommands() {
-        val c = client ?: return
-        if (_commands.value.isNotEmpty()) return
-        viewModelScope.launch {
-            runCatching { c.commands() }.onSuccess { _commands.value = it }
-        }
-    }
+    fun dismissConfirm() { _confirm.value = null }
 
     fun setReasoning(effort: String?) {
-        _reasoning.value = effort
-        store.reasoningEffort = effort
+        if (_chat.value.sessionId == null) {
+            _reasoning.value = effort
+            store.reasoningEffort = effort
+            return
+        }
+        val level = effort ?: _models.value?.reasoningDefault ?: "medium"
+        viewModelScope.launch {
+            try {
+                rpc("config.set", { JSONObject().put("session_id", it).put("key", "reasoning").put("value", level) })
+                _reasoning.value = level
+                _chat.update { it.copy(reasoning = level) }
+            } catch (t: Throwable) { say(t) }
+        }
     }
 
     fun modelPickerOpened() { _openModelPicker.value = false }
+
+    // ------------------------------------------------------------ slash commands
+
+    /** Suggestions come from Hermes' own completer, so skills and plugins appear like on the desktop. */
+    private fun updateSuggestions(text: String) {
+        suggestJob?.cancel()
+        if (!text.startsWith("/") || text.contains('\n') || text.contains(' ')) {
+            if (_suggestions.value.isNotEmpty()) _suggestions.value = emptyList()
+            return
+        }
+        val g = gateway ?: return
+        suggestJob = viewModelScope.launch {
+            delay(90)
+            val params = JSONObject().put("text", text).apply { _chat.value.runtimeId?.let { put("session_id", it) } }
+            val res = runCatching { g.call("complete.slash", params, 8_000) }.getOrNull() ?: return@launch
+            _suggestions.value = parseSuggestions(res).take(40)
+        }
+    }
 
     private fun note(command: String, text: String) {
         _chat.update { it.copy(items = it.items + ChatItem.CommandOutput("cmd-${System.nanoTime()}", command, text)) }
     }
 
-    private fun runSlash(line: String) {
-        _chat.update { it.copy(draft = "") } // the typed command was consumed, as it always was
+    private fun runSlash(line: String, depth: Int = 0) {
+        _chat.update { it.copy(draft = "") } // the typed command was consumed
+        drafts.put(_chat.value.sessionId, "")
+        _suggestions.value = emptyList()
         val name = line.drop(1).substringBefore(' ').lowercase()
         val arg = line.substringAfter(' ', "").trim()
         when (name) {
-            "new" -> return newChat()
+            "new", "reset" -> return newChat()
             "stop" -> return if (_chat.value.busy) stop() else note(line, "Nothing is running.")
-            "reasoning" -> return reasoningCommand(line, arg)
-            "model" -> return modelCommand(line, arg)
+            "model" -> if (arg.isEmpty()) { loadModels(); _openModelPicker.value = true; return }
+            "reasoning" -> if (arg.isEmpty()) return note(line, "Reasoning effort: ${_chat.value.reasoning ?: _reasoning.value ?: "default"}\n" +
+                "Options: ${REASONING_LEVELS.joinToString(", ")}")
+            "steer" -> if (arg.isNotEmpty() && _chat.value.busy) return steer(arg)
         }
-        val c = client ?: return
-        if (_chat.value.busy || _chat.value.sending) return say(IllegalStateException("Wait for the current reply to finish."))
-        _chat.update { it.copy(sending = true) }
+        if ("/$name" in io.github.nideta231.hermesremote.data.UNAVAILABLE_COMMANDS) return note(line, "/$name works on the PC only.")
         viewModelScope.launch {
             try {
-                val sid = _chat.value.sessionId ?: c.createSession(null).also { s ->
-                    store.lastSessionId = s.id
-                    drafts.clear(null)
-                    _chat.update { it.copy(sessionId = s.id, title = s.displayTitle) }
-                }.id
-                when (val reply = c.runCommand(sid, line)) {
-                    is CommandReply.Output -> {
-                        _chat.update { it.copy(sending = false) }
-                        note(line, reply.text)
-                        if (name == "title" || name == "compress") reloadAfterCommand(sid)
+                when (name) {
+                    "btw" -> {
+                        if (arg.isEmpty()) return@launch note(line, "Usage: /btw <question>")
+                        rpc("prompt.btw", { JSONObject().put("session_id", it).put("text", arg) })
+                        note(line, "Asking on the side… the answer shows up here.")
                     }
-                    is CommandReply.Send -> {
-                        _chat.update { it.copy(sending = false) }
-                        sendMessage(reply.message, reply.display)
+                    "background", "bg" -> {
+                        if (arg.isEmpty()) return@launch note(line, "Usage: /background <task>")
+                        rpc("prompt.background", { JSONObject().put("session_id", it).put("text", arg) })
+                        note(line, "Started in the background; the result shows up here.")
+                    }
+                    "title" -> {
+                        val res = rpc("session.title", { rid -> JSONObject().put("session_id", rid).apply { if (arg.isNotEmpty()) put("title", arg) } })
+                        res.str("title")?.takeIf { it.isNotBlank() }?.let { t -> _chat.update { it.copy(title = t) } }
+                        note(line, "Title: ${res.str("title") ?: "(none)"}")
+                        scheduleSessionsRefresh()
+                    }
+                    "compress", "compact" -> {
+                        note(line, "Compressing…")
+                        val res = rpc("session.compress", { rid -> JSONObject().put("session_id", rid).apply { if (arg.isNotEmpty()) put("focus_topic", arg) } }, 300_000)
+                        note(line, res.str("message") ?: "Compressed: ${res.optInt("before_messages")} → ${res.optInt("after_messages")} messages.")
+                        _chat.value.sessionId?.let { resume(it) }
+                    }
+                    "branch", "fork" -> {
+                        val res = rpc("session.branch", { rid -> JSONObject().put("session_id", rid).apply { if (arg.isNotEmpty()) put("name", arg) } })
+                        res.str("stored_session_id")?.let { openSession(it); scheduleSessionsRefresh() }
+                    }
+                    "status" -> note(line, rpc("session.status", { JSONObject().put("session_id", it) }).str("output") ?: "")
+                    "save" -> note(line, rpc("session.save", { JSONObject().put("session_id", it) }).str("file")?.let { "Saved to $it" } ?: "Saved.")
+                    else -> {
+                        // Hermes' own dispatch, exactly as the desktop does it: the slash worker, or
+                        // command.dispatch for skills, /retry, /undo, /queue, /plan and friends.
+                        val res = try {
+                            rpc("slash.exec", { JSONObject().put("session_id", it).put("command", line) }, 120_000)
+                        } catch (e: RpcException) {
+                            if (e.code != 4018) throw e
+                            rpc("command.dispatch", { JSONObject().put("session_id", it).put("name", name).put("arg", arg) }, 120_000)
+                        }
+                        when (val d = parseDispatch(res)) {
+                            is Dispatch.Output -> {
+                                note(line, d.text)
+                                if (name in RELOADING_COMMANDS) _chat.value.sessionId?.let { resume(it) }
+                            }
+                            is Dispatch.Alias -> if (depth < 3) runSlash("/" + d.target.removePrefix("/") + if (arg.isNotEmpty()) " $arg" else "", depth + 1)
+                            is Dispatch.Send -> {
+                                d.notice?.let { note(line, it) }
+                                // /retry and /undo rewound the transcript on the PC: show that first.
+                                if (name in RELOADING_COMMANDS) _chat.value.sessionId?.let { resume(it) }
+                                sendMessage(d.message, d.display ?: if (name == "retry") d.message else line)
+                            }
+                            is Dispatch.Prefill -> {
+                                d.notice?.let { note(line, it) }
+                                _chat.value.sessionId?.let { resume(it) }
+                                setDraft(d.message)
+                            }
+                            null -> note(line, "(no output)")
+                        }
                     }
                 }
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
-                _chat.update { it.copy(sending = false) }
-                say(t)
-            }
-        }
-    }
-
-    private fun reloadAfterCommand(sid: String) {
-        val c = client ?: return
-        viewModelScope.launch {
-            runCatching { c.session(sid) }.onSuccess { (s, _) ->
-                if (_chat.value.sessionId == sid) _chat.update { it.copy(title = s.displayTitle) }
-            }
-            refreshSessions()
-        }
-    }
-
-    private fun reasoningCommand(line: String, arg: String) {
-        val levels = _models.value?.reasoningLevels ?: REASONING_LEVELS
-        val wanted = when (arg.lowercase()) {
-            "" -> return note(line, "Reasoning effort: ${_reasoning.value ?: "default (${_models.value?.reasoningDefault ?: "from config"})"}\n" +
-                "Options: ${levels.joinToString(", ")}, default")
-            "off" -> "none"
-            "default", "reset" -> null
-            else -> arg.lowercase()
-        }
-        if (wanted != null && wanted !in levels) return note(line, "Unknown level “$arg”. Options: ${levels.joinToString(", ")}, default")
-        setReasoning(wanted)
-        note(line, "Reasoning effort for your next messages: ${wanted ?: "default"}")
-    }
-
-    private fun modelCommand(line: String, arg: String) {
-        if (arg.isEmpty()) {
-            loadModels()
-            _openModelPicker.value = true
-            return
-        }
-        val c = client ?: return
-        viewModelScope.launch {
-            val catalog = _models.value ?: runCatching { c.models() }.getOrNull()?.also { _models.value = it }
-                ?: return@launch note(line, "Couldn't load the model list from your PC.")
-            val q = arg.lowercase()
-            val hit = catalog.options.firstOrNull {
-                it.id.lowercase() == q || it.label.lowercase() == q ||
-                    it.id.substringAfterLast('/').lowercase() == q
-            }
-                ?: catalog.options.filter { it.id.lowercase().contains(q) || it.label.lowercase().contains(q) }.singleOrNull()
-            if (hit == null) {
-                val near = catalog.options.filter { it.label.lowercase().contains(q.take(4)) }.take(5).joinToString { it.label }
-                note(line, "No single model matches “$arg”." + if (near.isNotEmpty()) " Close: $near" else "")
-            } else {
-                chooseModel(hit)
-                note(line, "Model for your next messages: ${hit.providerName}: ${hit.label}")
+                if (t is RpcException) note(line, t.message ?: "Failed (${t.code})") else say(t)
             }
         }
     }
@@ -996,7 +1139,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // ------------------------------------------------------------ system + desktop
+    // ------------------------------------------------------------ system
 
     fun refreshStatus() {
         val c = client ?: return
@@ -1029,13 +1172,11 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun loadDesktop() {
-        val c = client ?: return
-        viewModelScope.launch {
-            _desktop.value = try { Result.success(c.desktop()) } catch (t: Throwable) {
-                if (t is CancellationException) throw t
-                Result.failure(IOException(describe(t)))
-            }
-        }
+    private companion object {
+        /** Bridge protocol this app speaks (the WebSocket relay). */
+        const val MIN_BRIDGE_PROTOCOL = 2
+        val STREAM_EVENTS = setOf("message.delta", "reasoning.delta", "thinking.delta") // coalesced per frame
+        /** Commands that change the transcript on the PC: re-read it after they run. */
+        val RELOADING_COMMANDS = setOf("retry", "undo", "rollback", "clear")
     }
 }

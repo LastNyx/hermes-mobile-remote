@@ -1,15 +1,13 @@
 package io.github.nideta231.hermesremote
 
-import io.github.nideta231.hermesremote.data.CommandReply
-import io.github.nideta231.hermesremote.data.HistoryMapper
 import io.github.nideta231.hermesremote.data.ChatItem
-import io.github.nideta231.hermesremote.data.SlashCommand
+import io.github.nideta231.hermesremote.data.Dispatch
+import io.github.nideta231.hermesremote.data.HistoryMapper
 import io.github.nideta231.hermesremote.data.Updater
 import io.github.nideta231.hermesremote.data.displayUserText
-import io.github.nideta231.hermesremote.data.matchCommands
 import io.github.nideta231.hermesremote.data.parseCatalog
-import io.github.nideta231.hermesremote.data.parseCommandReply
-import io.github.nideta231.hermesremote.data.parseCommands
+import io.github.nideta231.hermesremote.data.parseDispatch
+import io.github.nideta231.hermesremote.data.parseSuggestions
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -19,27 +17,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CommandsAndUpdatesTest {
-    private val commands = listOf(
-        SlashCommand("title", "Set a title", "[name]", "output"),
-        SlashCommand("tools", "Manage tools", "", "output"),
-        SlashCommand("tidy", "Tidy skill", "[instruction]", "skill"),
-        SlashCommand("reasoning", "Set effort", "", "app"),
-    )
-
-    @Test fun `slash suggestions match by prefix and put built-ins before skills`() {
-        assertEquals(listOf("title", "tools", "tidy"), matchCommands(commands, "/t").map { it.name })
-        assertEquals(listOf("title"), matchCommands(commands, "/TI").map { it.name }.take(1))
-        assertEquals(4, matchCommands(commands, "/").size)
-        assertTrue(matchCommands(commands, "/title My chat").isEmpty())  // arguments started: list closes
-        assertTrue(matchCommands(commands, "hello /t").isEmpty())
+    @Test fun `slash suggestions come from Hermes and hide PC-only commands`() {
+        val s = parseSuggestions(JSONObject("""{"items":[
+            {"text":"/title","display":"/title","meta":"Set a title"},
+            {"text":"/voice","display":"/voice","meta":"Voice mode"},
+            {"text":"/humanizer","display":"/humanizer","meta":"Humanize text","kind":"skill"},
+            {"text":"","display":"broken"}]}"""))
+        assertEquals(listOf("/title", "/humanizer"), s.map { it.text })
+        assertTrue(s.last().skill)
+        assertEquals("Set a title", s.first().meta)
     }
 
-    @Test fun `command list and replies parse`() {
-        val list = parseCommands(JSONObject("""{"data":[{"name":"title","description":"d","args":"[name]","kind":"output"},{"description":"no name"}]}"""))
-        assertEquals(listOf(SlashCommand("title", "d", "[name]", "output")), list)
-        assertEquals(CommandReply.Output("done"), parseCommandReply(JSONObject("""{"type":"output","text":"done"}""")))
-        assertEquals(CommandReply.Send("[expanded]", "/plan x"),
-            parseCommandReply(JSONObject("""{"type":"send","message":"[expanded]","display":"/plan x","notice":""}""")))
+    @Test fun `command dispatch replies parse like the desktop reads them`() {
+        assertEquals(Dispatch.Output("done"), parseDispatch(JSONObject("""{"type":"exec","output":"done"}""")))
+        assertEquals(Dispatch.Alias("/compress"), parseDispatch(JSONObject("""{"type":"alias","target":"/compress"}""")))
+        assertEquals(Dispatch.Send("[expanded]", "/plan x", null),
+            parseDispatch(JSONObject("""{"type":"send","message":"[expanded]","display":"/plan x","notice":""}""")))
+        assertEquals(Dispatch.Send("hi again", null, "Retrying"),
+            parseDispatch(JSONObject("""{"type":"send","message":"hi again","notice":"Retrying"}""")))
+        assertEquals(Dispatch.Prefill("draft", null), parseDispatch(JSONObject("""{"type":"prefill","message":"draft"}""")))
+        assertNull(parseDispatch(JSONObject("""{"type":"mystery"}""")))
     }
 
     @Test fun `expanded skill and plan turns show what the user typed`() {
@@ -50,23 +47,20 @@ class CommandsAndUpdatesTest {
         assertEquals("/humanizer", displayUserText("[IMPORTANT: The user has invoked the \"humanizer\" skill, ... loaded below.]\n\nbody"))
         assertEquals("/plan add dark mode", displayUserText("[/plan — plan mode]\n\nrules\nTask to plan:\nadd dark mode\n\ncraft"))
         assertEquals("hello", displayUserText("hello"))
-        val items = HistoryMapper.map(JSONArray().put(JSONObject().put("id", 1).put("role", "user").put("content", skill)))
+        val items = HistoryMapper.map(JSONArray().put(JSONObject().put("row_id", 1).put("role", "user").put("text", skill)))
         assertEquals("/humanizer make it nicer", (items.single() as ChatItem.User).text)
     }
 
-    @Test fun `catalog carries the reasoning default and falls back without it`() {
-        val with = parseCatalog(JSONObject("""{"current":{},"providers":[],"reasoning":{"default":"high","levels":["low","high"]}}"""))
-        assertEquals("high", with.reasoningDefault)
-        assertEquals(listOf("low", "high"), with.reasoningLevels)
-        val without = parseCatalog(JSONObject("""{"current":{},"providers":[]}"""))
-        assertEquals("medium", without.reasoningDefault)
-        assertTrue("xhigh" in without.reasoningLevels)
+    @Test fun `catalog falls back to the standard reasoning levels`() {
+        val cat = parseCatalog(JSONObject("""{"model":"","provider":"","providers":[]}"""))
+        assertEquals("medium", cat.reasoningDefault)
+        assertTrue("xhigh" in cat.reasoningLevels)
     }
 
     @Test fun `a short model name shared by providers keeps its provider-qualified id`() {
         // "claude-sonnet-5.5" is Copilot's own id and the tail of Nous Portal's
         // "anthropic/claude-sonnet-5.5"; identical labels made the picker ambiguous.
-        val catalog = parseCatalog(JSONObject("""{"current":{},"providers":[
+        val catalog = parseCatalog(JSONObject("""{"providers":[
             {"slug":"nous","name":"Nous Portal","models":["anthropic/claude-sonnet-5.5","deepseek/deepseek-v4.1-flash"]},
             {"slug":"copilot","name":"GitHub Copilot","models":["claude-sonnet-5.5"]},
             {"slug":"opencode-go","name":"OpenCode Go","models":["deepseek-v4.1-flash","kimi-k3"]}]}"""))
@@ -105,7 +99,7 @@ class CommandsAndUpdatesTest {
     @Test fun `a response that omits its array is empty, not a crash`() {
         // `strings()` has always treated an absent array as empty; `objects()` did not, so a
         // bridge/older build that leaves the key out threw instead of degrading.
-        assertTrue(parseCommands(JSONObject("{}")).isEmpty())
+        assertTrue(parseSuggestions(JSONObject("{}")).isEmpty())
         assertTrue(parseCatalog(JSONObject("{}")).options.isEmpty())
         assertNull(Updater.parseRelease(JSONObject("""{"tag_name":"v1"}""")))
     }

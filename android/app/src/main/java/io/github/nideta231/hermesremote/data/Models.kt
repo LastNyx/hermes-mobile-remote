@@ -13,6 +13,7 @@ data class Pairing(
     val pin: String? = null,
 )
 
+/** One row of the desktop sidebar: the same list, from the same query. [id] is the stored id. */
 data class SessionSummary(
     val id: String,
     val title: String?,
@@ -28,22 +29,12 @@ data class SessionSummary(
             ?.takeIf { it.isNotBlank() } ?: "Untitled session"
 }
 
-/** One poll of a session that another surface (desktop, messaging platforms) is driving. */
-data class SessionSync(
-    val messages: List<JSONObject>,
-    val cursor: Int,
-    val changed: Boolean,
-    val active: Boolean,
-    val model: String?,
-)
-
 data class ModelOption(val provider: String, val providerName: String, val id: String, val label: String, val current: Boolean)
 
 data class ModelCatalog(
     val currentModel: String?,
     val currentProvider: String?,
     val options: List<ModelOption>,
-    /** Effort Hermes uses when the app doesn't pick one, and the levels to offer. */
     val reasoningDefault: String = "medium",
     val reasoningLevels: List<String> = REASONING_LEVELS,
 ) {
@@ -52,32 +43,24 @@ data class ModelCatalog(
             ?: options.firstOrNull { it.id == currentModel }
 }
 
+/** A dangerous command Hermes wants allowed. [id] is the JSON-RPC id the answer goes back to. */
 data class ApprovalRequest(
-    val requestId: String?,
+    val id: String,
+    val sessionId: String?,
     val command: String?,
     val description: String?,
     val choices: List<String>,
 )
 
-data class RunSnapshot(
-    val runId: String,
-    val sessionId: String?,
-    val status: String,
-    val lastSeq: Long,
-    val pendingApproval: ApprovalRequest?,
-) {
-    val terminal: Boolean get() = status in TERMINAL_STATUSES
+/** One question of the clarify tool. */
+data class ClarifyQuestion(val qid: String?, val question: String, val choices: List<String>, val multiSelect: Boolean)
 
-    companion object {
-        val TERMINAL_STATUSES = setOf("completed", "failed", "cancelled", "interrupted")
-    }
+/** The clarify tool asking the user something: one question, or a batch. */
+data class ClarifyRequest(val id: String, val sessionId: String?, val questions: List<ClarifyQuestion>) {
+    val batch: Boolean get() = questions.size > 1 || questions.firstOrNull()?.qid != null
 }
 
-data class SseEvent(val id: Long, val name: String, val data: JSONObject)
-
 data class ComponentStatus(val key: String, val label: String, val ok: Boolean, val summary: String, val detail: String?)
-
-data class DesktopInfo(val host: String, val dnsName: String?, val port: Int, val username: String?, val rdpUri: String)
 
 /** Error returned by the bridge with its stable error code (never an IOException: not retried). */
 class BridgeException(val httpCode: Int, val code: String, message: String) : Exception(message)
@@ -92,78 +75,106 @@ fun JSONArray?.objects(): List<JSONObject> = if (this == null) emptyList() else 
 
 fun JSONArray?.strings(): List<String> = if (this == null) emptyList() else (0 until length()).map { optString(it) }
 
-fun parseApproval(o: JSONObject?): ApprovalRequest? = o?.let {
-    ApprovalRequest(it.str("request_id"), it.str("command"), it.str("description"),
-        it.optJSONArray("choices").strings().ifEmpty { listOf("once", "deny") })
-}
-
-fun parseRun(o: JSONObject) = RunSnapshot(
-    runId = o.getString("run_id"),
-    sessionId = o.str("session_id"),
-    status = o.optString("status", "running"),
-    lastSeq = o.optLong("last_seq", 0),
-    pendingApproval = parseApproval(o.optJSONObject("pending_approval")),
-)
-
 fun parseSession(o: JSONObject) = SessionSummary(
     id = o.getString("id"),
     title = o.str("title"),
     preview = o.str("preview"),
     source = o.str("source"),
     messageCount = o.optInt("message_count", 0),
-    lastActive = o.dbl("last_active") ?: o.dbl("started_at"),
+    lastActive = o.dbl("last_active") ?: o.dbl("last_activity_at") ?: o.dbl("started_at"),
     model = o.str("model"),
     pinned = o.optBoolean("pinned", false),
 )
 
-/** Build the picker list: featured models of every usable provider first, then the rest. */
+fun parseApproval(id: String, p: JSONObject) = ApprovalRequest(
+    id = id,
+    sessionId = p.str("session_id"),
+    command = p.str("command"),
+    description = p.str("description"),
+    choices = p.optJSONArray("choices").strings().ifEmpty { listOf("once", "session", "deny") },
+)
+
+fun parseClarify(id: String, p: JSONObject): ClarifyRequest {
+    val batch = p.optJSONArray("questions").objects().mapNotNull { q ->
+        val text = q.str("question") ?: return@mapNotNull null
+        ClarifyQuestion(q.str("qid"), text, q.optJSONArray("choices").strings(), q.optBoolean("multi_select"))
+    }
+    val single = p.str("question")?.let {
+        listOf(ClarifyQuestion(null, it, p.optJSONArray("choices").strings(), p.optBoolean("multi_select")))
+    }.orEmpty()
+    return ClarifyRequest(id, p.str("session_id"), batch.ifEmpty { single })
+}
+
+/**
+ * Build the picker from `model.options`: usable providers only, featured models first. A provider
+ * without credentials, and models it marks unavailable, would only offer dead taps.
+ */
 fun parseCatalog(o: JSONObject): ModelCatalog {
-    val cur = o.optJSONObject("current")
     val raw = mutableListOf<ModelOption>()
     o.optJSONArray("providers").objects().forEach { p ->
+        if (p.has("authenticated") && !p.isNull("authenticated") && !p.optBoolean("authenticated", true)) return@forEach
         val slug = p.str("slug") ?: return@forEach
         val name = p.str("name") ?: slug
-        val featured = p.optJSONArray("featured").strings().toSet()
-        val ordered = p.optJSONArray("models").strings().sortedBy { if (it in featured) "0$it" else "1$it" }
-        ordered.forEach { m ->
-            raw += ModelOption(slug, name, m, m.substringAfterLast('/'), p.optBoolean("current", false))
-        }
+        val unavailable = p.optJSONArray("unavailable_models").strings().toSet()
+        val featured = p.optJSONArray("featured_models").strings().toSet()
+        val current = p.optBoolean("is_current", false) || slug == o.str("provider")
+        p.optJSONArray("models").strings()
+            .filter { it !in unavailable }
+            .sortedBy { if (it in featured) 0 else 1 }
+            .forEach { m -> raw += ModelOption(slug, name, m, m.substringAfterLast('/'), current) }
     }
-    // The same short name can exist under several providers ("claude-sonnet-5.5" is Copilot's
-    // own id and also the tail of Nous Portal's "anthropic/claude-sonnet-5.5"). Identical labels
-    // in different groups made the picker ambiguous, and a tap could run a different model than
-    // the one the person meant; when a short name is not unique, show the full provider id.
+    // The same short name can exist under several providers ("claude-sonnet-5.5" is Copilot's own
+    // id and also the tail of Nous Portal's "anthropic/claude-sonnet-5.5"). Identical labels in
+    // different groups made the picker ambiguous; when a short name is not unique, show the full id.
     val shortCounts = raw.groupingBy { it.label.lowercase() }.eachCount()
     val options = raw.map { if ((shortCounts[it.label.lowercase()] ?: 0) > 1) it.copy(label = it.id) else it }
-    val reasoning = o.optJSONObject("reasoning")
-    return ModelCatalog(cur?.str("model"), cur?.str("provider"), options,
-        reasoning?.str("default") ?: "medium",
-        reasoning?.optJSONArray("levels")?.strings()?.takeIf { it.isNotEmpty() } ?: REASONING_LEVELS)
+    return ModelCatalog(o.str("model"), o.str("provider"), options)
 }
 
-val REASONING_LEVELS = listOf("none", "low", "medium", "high", "xhigh", "max")
+val REASONING_LEVELS = listOf("none", "minimal", "low", "medium", "high", "xhigh", "max")
 
-/** One entry of the bridge's slash command list. [kind]: app, output, prompt or skill. */
-data class SlashCommand(val name: String, val description: String, val args: String, val kind: String)
+/** One slash command suggestion, as Hermes' own completer (`complete.slash`) returns it. */
+data class SlashSuggestion(val text: String, val display: String, val meta: String, val skill: Boolean)
 
-fun parseCommands(o: JSONObject): List<SlashCommand> = o.optJSONArray("data").objects().mapNotNull { c ->
-    val name = c.str("name") ?: return@mapNotNull null
-    SlashCommand(name, c.str("description") ?: "", c.str("args") ?: "", c.str("kind") ?: "output")
+fun parseSuggestions(o: JSONObject): List<SlashSuggestion> = o.optJSONArray("items").objects().mapNotNull { i ->
+    val text = i.str("text")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+    val name = "/" + text.removePrefix("/").substringBefore(' ')
+    if (name.lowercase() in UNAVAILABLE_COMMANDS) return@mapNotNull null
+    SlashSuggestion(text, i.str("display")?.takeIf { it.isNotBlank() } ?: name, i.str("meta").orEmpty(), i.str("kind") == "skill")
 }
 
-/** What running a command on the PC produced: text to show, or a prompt to send as a run. */
-sealed interface CommandReply {
-    data class Output(val text: String) : CommandReply
-    data class Send(val message: String, val display: String) : CommandReply
+/**
+ * What a slash command resolved to, as the desktop reads it (`parseCommandDispatch`): output to
+ * show, another command to run, or a message to send or to put in the composer.
+ */
+sealed interface Dispatch {
+    data class Output(val text: String) : Dispatch
+    data class Alias(val target: String) : Dispatch
+    data class Send(val message: String, val display: String?, val notice: String?) : Dispatch
+    data class Prefill(val message: String, val notice: String?) : Dispatch
 }
 
-fun parseCommandReply(o: JSONObject): CommandReply =
-    if (o.optString("type") == "send") CommandReply.Send(o.getString("message"), o.str("display") ?: o.getString("message"))
-    else CommandReply.Output(o.str("text") ?: "")
-
-/** Commands whose name starts with what was typed after "/", app commands first. */
-fun matchCommands(all: List<SlashCommand>, typed: String): List<SlashCommand> {
-    if (!typed.startsWith("/") || typed.contains(' ') || typed.contains('\n')) return emptyList()
-    val q = typed.drop(1).lowercase()
-    return all.filter { it.name.startsWith(q) }.sortedBy { if (it.kind == "skill") 1 else 0 }
+fun parseDispatch(o: JSONObject?): Dispatch? {
+    o ?: return null
+    val notice = o.str("notice")?.trim()?.takeIf { it.isNotEmpty() }
+    return when (o.str("type")) {
+        null, "exec", "plugin" -> Dispatch.Output(listOfNotNull(o.str("output"), o.str("warning")).joinToString("\n").ifBlank { "(no output)" })
+        "alias" -> o.str("target")?.takeIf { it.isNotBlank() }?.let { Dispatch.Alias(it) }
+        "send", "skill" -> Dispatch.Send(o.str("message").orEmpty(), o.str("display")?.trim()?.takeIf { it.isNotEmpty() }, notice)
+        "prefill" -> Dispatch.Prefill(o.str("message").orEmpty(), notice)
+        else -> null
+    }
 }
+
+/**
+ * Commands the phone does not offer: terminal-only, messaging-only, or desktop windows (pet,
+ * memory graph, skins, profiles). Mirrors the desktop's slash registry.
+ */
+val UNAVAILABLE_COMMANDS = setOf(
+    "/approve", "/deny", "/busy", "/clear", "/config", "/copy", "/cron", "/curator", "/exit", "/footer", "/gateway",
+    "/history", "/image", "/indicator", "/insights", "/kanban", "/login", "/paste", "/platforms", "/plugins", "/quit",
+    "/redraw", "/reload", "/reload-mcp", "/reload-skills", "/reload_mcp", "/reload_skills", "/restart", "/sb",
+    "/set-home", "/sethome", "/skills", "/statusbar", "/toolsets", "/update", "/verbose", "/voice",
+    "/browser", "/wake", "/handoff", "/pet", "/hatch", "/generate-pet", "/journey", "/learning", "/memory-graph",
+    "/skin", "/profile", "/resume", "/sessions", "/switch",
+)

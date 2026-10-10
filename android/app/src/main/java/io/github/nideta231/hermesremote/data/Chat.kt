@@ -10,6 +10,8 @@ sealed interface ChatItem {
 
     data class User(override val key: String, val text: String, val pending: Boolean = false) : ChatItem
     data class Assistant(override val key: String, val text: String, val streaming: Boolean = false) : ChatItem
+    /** The model's reasoning for the reply that follows; shown collapsed. */
+    data class Thinking(override val key: String, val text: String, val streaming: Boolean = false) : ChatItem
     data class Tool(
         override val key: String,
         val name: String,
@@ -19,9 +21,11 @@ sealed interface ChatItem {
         val durationSec: Double? = null,
         val callId: String? = null,
     ) : ChatItem
+    /** [decided]: the choice made (here or on another screen), null while it waits. */
     data class Approval(override val key: String, val request: ApprovalRequest, val decided: String? = null) : ChatItem
+    data class Clarify(override val key: String, val request: ClarifyRequest, val answer: String? = null) : ChatItem
     data class Notice(override val key: String, val text: String, val error: Boolean = false) : ChatItem
-    /** Output of a slash command that ran on the PC. Local to the app; not part of the transcript. */
+    /** Output of a slash command or a /btw side answer. Local to the app; not part of the transcript. */
     data class CommandOutput(override val key: String, val command: String, val text: String) : ChatItem
 }
 
@@ -48,148 +52,212 @@ fun displayUserText(text: String): String {
     return text
 }
 
-private fun contentText(v: Any?): String = when (v) {
-    null, JSONObject.NULL -> ""
-    is String -> v
-    is JSONArray -> (0 until v.length()).mapNotNull { i ->
-        val part = v.opt(i)
-        when (part) {
-            is String -> part
-            is JSONObject -> part.str("text") ?: if (part.optString("type").contains("image")) "[image]" else null
-            else -> null
-        }
-    }.joinToString("\n")
-    else -> v.toString()
-}
-
 /** Human-sized summary of a tool call's arguments (the command for terminal, else compact JSON). */
-fun summarizeArgs(name: String, rawArgs: String?): String {
-    if (rawArgs.isNullOrBlank()) return ""
-    val obj = runCatching { JSONObject(rawArgs) }.getOrNull() ?: return rawArgs.take(300)
-    for (k in listOf("command", "path", "url", "query", "name", "goal", "code")) {
-        obj.str(k)?.let { return it.take(400) }
+fun summarizeArgs(args: JSONObject?): String {
+    args ?: return ""
+    for (k in listOf("command", "path", "url", "query", "name", "goal", "code", "question")) {
+        args.str(k)?.takeIf { it.isNotBlank() }?.let { return it.take(400) }
     }
-    return obj.toString().take(300)
+    return if (args.length() == 0) "" else args.toString().take(300)
 }
 
-/** Converts persisted Hermes history into chat items. Tool results attach to their call by id. */
+/** A tool result reads as a failure when it says so: non-zero exit, an error, success=false. */
+fun toolFailed(result: Any?): Boolean {
+    val o = when (result) {
+        is JSONObject -> result
+        is String -> runCatching { JSONObject(result) }.getOrNull()
+        else -> null
+    } ?: return false
+    return (o.has("exit_code") && !o.isNull("exit_code") && o.optInt("exit_code", 0) != 0) ||
+        (o.has("success") && !o.optBoolean("success", true)) ||
+        (o.has("error") && !o.isNull("error") && o.opt("error").let { it == true || (it is String && it.isNotBlank()) })
+}
+
+private fun resultPreview(p: JSONObject): String? {
+    p.str("summary")?.takeIf { it.isNotBlank() }?.let { return it }
+    p.str("result_text")?.takeIf { it.isNotBlank() }?.let { return it }
+    return when (val r = p.opt("result")) {
+        null, JSONObject.NULL -> null
+        is JSONObject -> r.str("output")?.takeIf { it.isNotBlank() } ?: r.toString()
+        else -> r.toString()
+    }?.take(4000)
+}
+
+/** Hermes' display transcript (`session.resume` / `session.history` messages) as chat items. */
 object HistoryMapper {
-    fun map(messages: JSONArray): List<ChatItem> {
+    fun map(messages: JSONArray?): List<ChatItem> {
         val items = mutableListOf<ChatItem>()
-        val toolIndex = HashMap<String, Int>()
-        for (m in messages.objects()) {
-            val id = m.optString("id")
+        messages.objects().forEachIndexed { i, m ->
+            if (m.str("display_kind") == "hidden") return@forEachIndexed
+            val id = if (m.has("row_id") && !m.isNull("row_id")) "r${m.optLong("row_id")}" else "i$i"
+            val text = m.str("text").orEmpty()
             when (m.optString("role")) {
-                "user" -> items += ChatItem.User("h-$id", displayUserText(contentText(m.opt("content"))))
+                "user" -> if (text.isNotBlank()) items += ChatItem.User("h-$id", displayUserText(text))
                 "assistant" -> {
-                    val text = contentText(m.opt("content"))
+                    m.str("reasoning")?.takeIf { it.isNotBlank() }?.let { items += ChatItem.Thinking("h-$id-r", it.trim()) }
                     if (text.isNotBlank()) items += ChatItem.Assistant("h-$id", text.trim())
-                    m.optJSONArray("tool_calls")?.objects()?.forEachIndexed { i, tc ->
-                        val fn = tc.optJSONObject("function")
-                        val name = fn?.str("name") ?: tc.str("name") ?: "tool"
-                        val callId = tc.str("id") ?: tc.str("call_id")
-                        if (callId != null) toolIndex[callId] = items.size
-                        items += ChatItem.Tool("h-$id-$i", name, summarizeArgs(name, fn?.str("arguments")), callId = callId)
-                    }
                 }
                 "tool" -> {
-                    val result = contentText(m.opt("content"))
-                    val idx = m.str("tool_call_id")?.let { toolIndex[it] }
-                    val failed = runCatching { JSONObject(result) }.getOrNull()?.let { r ->
-                        (r.has("exit_code") && r.optInt("exit_code", 0) != 0) || (r.has("success") && !r.optBoolean("success", true))
-                    } ?: false
-                    if (idx != null) {
-                        val t = items[idx] as ChatItem.Tool
-                        items[idx] = t.copy(result = result, status = if (failed) ToolStatus.FAILED else ToolStatus.OK)
-                    } else {
-                        items += ChatItem.Tool("h-$id", m.str("tool_name") ?: "tool", "", result,
-                            if (failed) ToolStatus.FAILED else ToolStatus.OK)
-                    }
+                    val name = m.str("name") ?: "tool"
+                    val args = m.optJSONObject("args")
+                    items += ChatItem.Tool("h-$id", name, m.str("context")?.takeIf { it.isNotBlank() } ?: summarizeArgs(args),
+                        callId = m.str("tool_call_id"))
                 }
+                "system" -> if (text.isNotBlank()) items += ChatItem.Notice("h-$id", text.trim())
             }
         }
         return items
     }
-
-    /** History up to (excluding) the last user turn: the in-flight turn is rebuilt from replayed events. */
-    fun withoutLastTurn(messages: JSONArray): JSONArray {
-        val list = messages.objects()
-        val lastUser = list.indexOfLast { it.optString("role") == "user" }
-        return if (lastUser < 0) messages else JSONArray(list.subList(0, lastUser))
-    }
-
-    fun lastUserText(messages: JSONArray): String? =
-        messages.objects().lastOrNull { it.optString("role") == "user" }?.let { displayUserText(contentText(it.opt("content"))) }
 }
 
-/** Folds live run events into the chat. Pure; event ids already de-duplicated by the caller. */
+/**
+ * Folds one live Hermes event into the chat. Pure. [key] must be unique per event (the caller
+ * uses the event's seq), so a list diff never confuses two items.
+ */
 object LiveReducer {
-    fun apply(items: List<ChatItem>, ev: SseEvent): List<ChatItem> {
+    fun apply(items: List<ChatItem>, type: String, p: JSONObject, key: String): List<ChatItem> {
         val out = items.toMutableList()
-        val d = ev.data
-        fun closeStreaming() {
-            val last = out.lastOrNull()
-            if (last is ChatItem.Assistant && last.streaming) {
-                if (last.text.isBlank()) out.removeAt(out.lastIndex) else out[out.lastIndex] = last.copy(text = last.text.trim(), streaming = false)
+        fun seal() {
+            for (i in out.indices.reversed()) {
+                when (val it = out[i]) {
+                    is ChatItem.Assistant -> if (it.streaming) {
+                        if (it.text.isBlank()) out.removeAt(i) else out[i] = it.copy(text = it.text.trim(), streaming = false)
+                    }
+                    is ChatItem.Thinking -> if (it.streaming) out[i] = it.copy(text = it.text.trim(), streaming = false)
+                    else -> {}
+                }
+                if (out.getOrNull(i) is ChatItem.User) break
             }
         }
-        when (ev.name) {
+        fun settleTools(to: ToolStatus) = out.replaceAll { if (it is ChatItem.Tool && it.status == ToolStatus.RUNNING) it.copy(status = to) else it }
+        when (type) {
             "message.delta" -> {
-                val delta = d.optString("delta")
+                val text = p.optString("text")
+                if (text.isEmpty()) return items
                 val last = out.lastOrNull()
-                if (last is ChatItem.Assistant && last.streaming) out[out.lastIndex] = last.copy(text = last.text + delta)
-                else out += ChatItem.Assistant("live-${ev.id}", delta.trimStart(), streaming = true)
+                if (last is ChatItem.Assistant && last.streaming) out[out.lastIndex] = last.copy(text = last.text + text)
+                else {
+                    if (last is ChatItem.Thinking && last.streaming) out[out.lastIndex] = last.copy(streaming = false)
+                    out += ChatItem.Assistant("live-$key", text.trimStart(), streaming = true)
+                }
             }
-            "message.interim" -> if (!d.optBoolean("already_streamed")) {
-                closeStreaming()
-                d.str("text")?.takeIf { it.isNotBlank() }?.let { out += ChatItem.Assistant("live-${ev.id}", it.trim()) }
+            // thinking.delta is the spinner's status text ("( ˘⌣˘)♡ reasoning..."), not reasoning:
+            // the desktop keeps it out of the transcript, and so does this reducer.
+            "reasoning.delta" -> {
+                val text = p.optString("text")
+                if (text.isEmpty()) return items
+                val last = out.lastOrNull()
+                if (last is ChatItem.Thinking && last.streaming) out[out.lastIndex] = last.copy(text = last.text + text)
+                else out += ChatItem.Thinking("live-$key", text.trimStart(), streaming = true)
             }
-            "tool.started" -> {
-                closeStreaming()
-                val name = d.str("tool") ?: d.str("tool_name") ?: "tool"
-                out += ChatItem.Tool("live-${ev.id}", name, d.str("preview").orEmpty(), status = ToolStatus.RUNNING)
+            "reasoning.available" -> {
+                val text = p.optString("text").trim()
+                if (text.isNotEmpty() && out.lastOrNull() !is ChatItem.Thinking) out += ChatItem.Thinking("live-$key", text)
             }
-            "tool.completed", "tool.failed" -> {
-                val name = d.str("tool") ?: d.str("tool_name")
-                val idx = out.indexOfLast { it is ChatItem.Tool && it.status == ToolStatus.RUNNING && (name == null || it.name == name) }
-                val failed = ev.name == "tool.failed" || (d.has("error") && d.opt("error").let { it == true || (it is String && it.isNotEmpty()) })
+            "message.interim" -> {
+                val text = p.optString("text").trim()
+                if (p.optBoolean("already_streamed")) seal()
+                else if (text.isNotEmpty()) { seal(); out += ChatItem.Assistant("live-$key", text) }
+            }
+            "tool.start" -> {
+                seal()
+                val name = p.str("name") ?: "tool"
+                val label = p.str("context")?.takeIf { it.isNotBlank() } ?: p.str("preview")?.takeIf { it.isNotBlank() }
+                    ?: summarizeArgs(p.optJSONObject("args"))
+                val callId = p.str("tool_id")
+                if (callId != null && out.any { it is ChatItem.Tool && it.callId == callId }) return out
+                out += ChatItem.Tool("live-$key", name, label, status = ToolStatus.RUNNING, callId = callId)
+            }
+            "tool.complete" -> {
+                val callId = p.str("tool_id")
+                val name = p.str("name")
+                var idx = if (callId != null) out.indexOfLast { it is ChatItem.Tool && it.callId == callId } else -1
+                if (idx < 0) idx = out.indexOfLast { it is ChatItem.Tool && it.status == ToolStatus.RUNNING && (name == null || it.name == name) }
+                val failed = toolFailed(p.opt("result"))
                 if (idx >= 0) {
                     val t = out[idx] as ChatItem.Tool
                     out[idx] = t.copy(status = if (failed) ToolStatus.FAILED else ToolStatus.OK,
-                        result = d.str("preview") ?: t.result, durationSec = d.dbl("duration"))
+                        result = resultPreview(p) ?: t.result, durationSec = p.dbl("duration_s"))
+                } else {
+                    out += ChatItem.Tool("live-$key", name ?: "tool", summarizeArgs(p.optJSONObject("args")), resultPreview(p),
+                        if (failed) ToolStatus.FAILED else ToolStatus.OK, p.dbl("duration_s"), callId)
                 }
             }
-            "approval.request" -> {
-                closeStreaming()
-                parseApproval(d)?.let { out += ChatItem.Approval("live-${ev.id}", it) }
+            "message.complete" -> {
+                seal()
+                val text = p.str("text")?.trim().orEmpty()
+                val sinceUser = out.subList(out.indexOfLast { it is ChatItem.User } + 1, out.size)
+                if (text.isNotEmpty() && sinceUser.none { it is ChatItem.Assistant && it.text.trim() == text } &&
+                    out.lastOrNull() !is ChatItem.Assistant) {
+                    out += ChatItem.Assistant("live-$key", text)
+                }
+                when (p.str("status")) {
+                    "error" -> {
+                        settleTools(ToolStatus.FAILED)
+                        out += ChatItem.Notice("live-$key-n", p.str("error") ?: p.str("failure_reason") ?: "The turn failed.", error = true)
+                    }
+                    "interrupted" -> { settleTools(ToolStatus.FAILED); out += ChatItem.Notice("live-$key-n", "Stopped.") }
+                    else -> settleTools(ToolStatus.OK)
+                }
+                p.str("warning")?.takeIf { it.isNotBlank() }?.let { out += ChatItem.Notice("live-$key-w", it) }
             }
-            "approval.responded" -> {
-                val idx = out.indexOfLast { it is ChatItem.Approval && it.decided == null }
-                if (idx >= 0) out[idx] = (out[idx] as ChatItem.Approval).copy(decided = d.str("choice") ?: "answered")
-            }
-            "subagent.start" -> out += ChatItem.Notice("live-${ev.id}", "Subagent started: ${d.str("goal") ?: d.str("preview") ?: ""}".trim())
-            "subagent.complete" -> out += ChatItem.Notice("live-${ev.id}", "Subagent ${d.str("status") ?: "finished"}: ${d.str("summary")?.take(200) ?: ""}".trim())
-            "run.completed" -> {
-                closeStreaming()
-                val output = d.str("output")
-                if (out.lastOrNull() !is ChatItem.Assistant && !output.isNullOrBlank()) out += ChatItem.Assistant("live-${ev.id}", output.trim())
-                out.replaceAll { if (it is ChatItem.Tool && it.status == ToolStatus.RUNNING) it.copy(status = ToolStatus.OK) else it }
-            }
-            "run.failed", "run.cancelled", "run.interrupted" -> {
-                closeStreaming()
-                out.replaceAll { if (it is ChatItem.Tool && it.status == ToolStatus.RUNNING) it.copy(status = ToolStatus.FAILED) else it }
-                val label = ev.name.removePrefix("run.")
-                out += ChatItem.Notice("live-${ev.id}", "Run $label" + (d.str("error")?.let { ": $it" } ?: ""), error = ev.name != "run.cancelled")
-            }
+            "error" -> out += ChatItem.Notice("live-$key", p.str("message") ?: "Hermes reported an error.", error = true)
+            "btw.complete" -> out += ChatItem.CommandOutput("live-$key", "/btw ${p.str("question").orEmpty()}".trim(), p.optString("text"))
+            "background.complete" -> out += ChatItem.CommandOutput("live-$key", "/background", p.optString("text"))
+            else -> return items
         }
         return out
+    }
+
+    /** A question Hermes asked arrived (or was replayed on resume): add it once. */
+    fun withApproval(items: List<ChatItem>, r: ApprovalRequest): List<ChatItem> =
+        if (items.any { it is ChatItem.Approval && it.request.id == r.id }) items else sealAll(items) + ChatItem.Approval("ask-${r.id}", r)
+
+    fun withClarify(items: List<ChatItem>, r: ClarifyRequest): List<ChatItem> =
+        if (items.any { it is ChatItem.Clarify && it.request.id == r.id }) items else sealAll(items) + ChatItem.Clarify("ask-${r.id}", r)
+
+    /** The question [id] was answered (here, on the desktop) or withdrawn. */
+    fun resolve(items: List<ChatItem>, id: String, outcome: String): List<ChatItem> = items.map {
+        when {
+            it is ChatItem.Approval && it.request.id == id && it.decided == null -> it.copy(decided = outcome)
+            it is ChatItem.Clarify && it.request.id == id && it.answer == null -> it.copy(answer = outcome)
+            else -> it
+        }
+    }
+
+    /** Questions still open: what the dock shows. */
+    fun openApproval(items: List<ChatItem>) = items.lastOrNull { it is ChatItem.Approval && it.decided == null } as ChatItem.Approval?
+    fun openClarify(items: List<ChatItem>) = items.lastOrNull { it is ChatItem.Clarify && it.answer == null } as ChatItem.Clarify?
+
+    private fun sealAll(items: List<ChatItem>) = items.map {
+        when (it) {
+            is ChatItem.Assistant -> if (it.streaming) it.copy(streaming = false) else it
+            is ChatItem.Thinking -> if (it.streaming) it.copy(streaming = false) else it
+            else -> it
+        }
     }
 }
 
 /**
- * Persisted history replaces the live items when a run settles. Keep each message's key from the
- * live item it replaces, otherwise the list sees every reply as removed + new and re-animates it
- * (the visible flash at the end of a response).
+ * The in-flight turn of a session the phone attaches to mid-run (`inflight` from session.resume):
+ * the user's message and the reply so far, appended after the persisted history.
+ */
+fun withInflight(history: List<ChatItem>, inflight: JSONObject?): List<ChatItem> {
+    inflight ?: return history
+    val out = history.toMutableList()
+    val user = inflight.str("user")?.let(::displayUserText)?.trim().orEmpty()
+    if (user.isNotEmpty() && (out.lastOrNull { it is ChatItem.User } as? ChatItem.User)?.text?.trim() != user) {
+        out += ChatItem.User("inflight-u", user)
+    }
+    val reply = inflight.str("assistant").orEmpty()
+    if (reply.isNotBlank()) out += ChatItem.Assistant("inflight-a", reply.trimStart(), streaming = inflight.optBoolean("streaming", true))
+    return out
+}
+
+/**
+ * A rebuilt list (resume after a reconnect, turn end) replaces the live one. Keep each item's key
+ * from the item it replaces, otherwise the list sees every message as removed + new and
+ * re-animates it (the visible flash).
  */
 fun reuseKeys(old: List<ChatItem>, fresh: List<ChatItem>): List<ChatItem> {
     val used = BooleanArray(old.size)
@@ -200,10 +268,21 @@ fun reuseKeys(old: List<ChatItem>, fresh: List<ChatItem>): List<ChatItem> {
     }
     return fresh.map { n ->
         when (n) {
-            is ChatItem.Assistant -> take { it is ChatItem.Assistant && it.text.trim() == n.text.trim() }?.let { n.copy(key = it.key) } ?: n
+            is ChatItem.Assistant -> take { it is ChatItem.Assistant && samePrefix(it.text, n.text) }?.let { n.copy(key = it.key) } ?: n
             is ChatItem.User -> take { it is ChatItem.User && it.text == n.text }?.let { n.copy(key = it.key) } ?: n
-            is ChatItem.Tool -> take { it is ChatItem.Tool && it.name == n.name }?.let { n.copy(key = it.key) } ?: n
+            is ChatItem.Thinking -> take { it is ChatItem.Thinking }?.let { n.copy(key = it.key) } ?: n
+            is ChatItem.Tool -> (take { it is ChatItem.Tool && (n.callId != null && it.callId == n.callId || it.name == n.name) } as ChatItem.Tool?)
+                ?.let { old -> n.copy(key = old.key, result = n.result ?: old.result, durationSec = n.durationSec ?: old.durationSec,
+                    status = if (old.status == ToolStatus.FAILED) ToolStatus.FAILED else n.status) } ?: n
             else -> n
         }
     }.distinctBy { it.key }
+}
+
+/** Same reply at two moments (streamed so far vs. final): one is a prefix of the other. */
+private fun samePrefix(a: String, b: String): Boolean {
+    val x = a.trim()
+    val y = b.trim()
+    val k = minOf(40, x.length, y.length)
+    return k > 0 && x.regionMatches(0, y, 0, k)
 }

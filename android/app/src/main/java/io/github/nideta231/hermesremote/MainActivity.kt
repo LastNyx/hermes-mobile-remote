@@ -53,7 +53,6 @@ import com.journeyapps.barcodescanner.ScanOptions
 import io.github.nideta231.hermesremote.data.Notifier
 import io.github.nideta231.hermesremote.ui.ChatActions
 import io.github.nideta231.hermesremote.ui.ChatScreen
-import io.github.nideta231.hermesremote.ui.DesktopScreen
 import io.github.nideta231.hermesremote.ui.HermesTheme
 import io.github.nideta231.hermesremote.ui.PairScreen
 import io.github.nideta231.hermesremote.ui.SessionActions
@@ -64,7 +63,7 @@ import io.github.nideta231.hermesremote.ui.linkHealth
 import kotlinx.coroutines.launch
 
 /** Chat is home; the others are pages pushed on top of it. */
-enum class Page { CHAT, SETTINGS, DESKTOP }
+enum class Page { CHAT, SETTINGS }
 
 class MainActivity : ComponentActivity() {
     private val vm: AppViewModel by viewModels()
@@ -145,12 +144,12 @@ class MainActivity : ComponentActivity() {
         val chat by vm.chat.collectAsState()
         val sessions by vm.sessions.collectAsState()
         val system by vm.system.collectAsState()
-        val desktop by vm.desktop.collectAsState()
         val models by vm.models.collectAsState()
         val choice by vm.modelChoice.collectAsState()
+        val confirm by vm.confirm.collectAsState()
         val conn by vm.connection.collectAsState()
         val reasoning by vm.reasoning.collectAsState()
-        val commands by vm.commands.collectAsState()
+        val suggestions by vm.suggestions.collectAsState()
         val openModelPicker by vm.openModelPicker.collectAsState()
         val update by vm.update.collectAsState()
         val toast by vm.toast.collectAsState()
@@ -164,8 +163,6 @@ class MainActivity : ComponentActivity() {
 
         val wide = LocalConfiguration.current.screenWidthDp >= 720
         val health = linkHealth(conn, system.error != null)
-        val activeRunSession = chat.sessionId.takeIf { chat.busy }
-        val desktopOk = system.components.firstOrNull { it.key == "desktop" }?.ok
 
         fun go(p: Page) {
             page = p
@@ -185,21 +182,20 @@ class MainActivity : ComponentActivity() {
             setPinned = vm::setPinned,
             newChat = { vm.newChat(); go(Page.CHAT) },
             openSettings = { go(Page.SETTINGS) },
-            openDesktop = { go(Page.DESKTOP) },
         )
         val chatActions = ChatActions(
-            send = vm::send, stop = vm::stop, steer = vm::steer, approve = vm::answerApproval, draft = vm::setDraft,
+            send = vm::send, stop = vm::stop, steer = vm::steer, approve = vm::answerApproval,
+            answerClarify = vm::answerClarify, draft = vm::setDraft,
             togglePin = vm::togglePin, newChat = vm::newChat,
             openDrawer = { vm.refreshSessions(); scope.launch { drawer.open() } },
             openSettings = { go(Page.SETTINGS) },
-            loadModels = vm::loadModels, chooseModel = vm::chooseModel, setReasoning = vm::setReasoning,
-            loadCommands = vm::loadCommands, modelPickerOpened = vm::modelPickerOpened,
+            loadModels = vm::loadModels, chooseModel = vm::chooseModel, dismissConfirm = vm::dismissConfirm,
+            setReasoning = vm::setReasoning, modelPickerOpened = vm::modelPickerOpened,
         )
         val settingsActions = SettingsActions(
             refresh = vm::refreshStatus, unpair = vm::unpair, setApprovalMode = vm::setApprovalMode,
             useTransport = vm::useTransport, useAuto = vm::useAutoTransport,
             checkUpdate = { vm.checkForUpdate() }, installUpdate = vm::installUpdate,
-            openDesktop = { go(Page.DESKTOP) },
         )
 
         val content: @Composable () -> Unit = {
@@ -211,10 +207,9 @@ class MainActivity : ComponentActivity() {
                         (slideOutHorizontally(spec) { if (forward) -it / 4 else it / 4 } + fadeOut(tween(180)))
                 }, label = "page") { p ->
                     when (p) {
-                        Page.CHAT -> ChatScreen(chat, health, models, choice, reasoning, commands, openModelPicker,
-                            showMenuButton = !wide, actions = chatActions)
+                        Page.CHAT -> ChatScreen(chat, health, models, vm.shownModel(models, chat), reasoning, suggestions,
+                            openModelPicker, confirm, showMenuButton = !wide, actions = chatActions)
                         Page.SETTINGS -> SettingsScreen(system, pairing, conn, update, settingsActions, onBack = { page = Page.CHAT })
-                        Page.DESKTOP -> DesktopScreen(desktop, desktopOk, vm::loadDesktop, onBack = { page = Page.CHAT })
                     }
                 }
                 SnackbarHost(snack, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 72.dp))
@@ -224,7 +219,7 @@ class MainActivity : ComponentActivity() {
         if (wide) {
             Row(Modifier.fillMaxSize()) {
                 Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.width(320.dp).fillMaxHeight()) {
-                    SessionsPane(sessions, chat.sessionId, activeRunSession, sessionActions)
+                    SessionsPane(sessions, chat.sessionId, sessionActions)
                 }
                 VerticalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
                 Box(Modifier.weight(1f)) { content() }
@@ -232,7 +227,7 @@ class MainActivity : ComponentActivity() {
         } else {
             ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = page == Page.CHAT || drawer.isOpen, drawerContent = {
                 ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.width(320.dp)) {
-                    SessionsPane(sessions, chat.sessionId, activeRunSession, sessionActions)
+                    SessionsPane(sessions, chat.sessionId, sessionActions)
                 }
             }) { content() }
         }

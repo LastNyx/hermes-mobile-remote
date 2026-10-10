@@ -1,12 +1,6 @@
 package io.github.nideta231.hermesremote.ui
 
-import android.content.ActivityNotFoundException
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.content.Intent
 import android.net.Uri
-import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -72,12 +66,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -85,7 +77,6 @@ import io.github.nideta231.hermesremote.ConnectionState
 import io.github.nideta231.hermesremote.SessionsState
 import io.github.nideta231.hermesremote.SystemState
 import io.github.nideta231.hermesremote.UpdateState
-import io.github.nideta231.hermesremote.data.DesktopInfo
 import io.github.nideta231.hermesremote.data.Pairing
 import io.github.nideta231.hermesremote.data.PairingParser
 import io.github.nideta231.hermesremote.data.SessionSummary
@@ -107,7 +98,6 @@ class SessionActions(
     val setPinned: (String, Boolean) -> Unit,
     val newChat: () -> Unit,
     val openSettings: () -> Unit,
-    val openDesktop: () -> Unit,
 )
 
 private fun groupOf(s: SessionSummary): String {
@@ -133,7 +123,6 @@ private val groupOrder = listOf("Pinned", "Today", "Yesterday", "This week", "Th
 fun SessionsPane(
     state: SessionsState,
     currentId: String?,
-    activeRunSessionId: String?,
     actions: SessionActions,
     modifier: Modifier = Modifier,
 ) {
@@ -178,7 +167,7 @@ fun SessionsPane(
                 grouped.forEach { (group, list) ->
                     item(key = "g-$group") { SectionLabel(group, Modifier.padding(start = 12.dp, top = 6.dp).animateItem()) }
                     items(list, key = { it.id }) { s ->
-                        SessionRow(s, current = s.id == currentId, running = s.id == activeRunSessionId,
+                        SessionRow(s, current = s.id == currentId, live = state.live[s.id],
                             modifier = Modifier.animateItem(),
                             onClick = { actions.open(s.id) }, onLongClick = { menuFor = s })
                     }
@@ -198,7 +187,6 @@ fun SessionsPane(
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-        PanelRow("Remote desktop", icon = Glyphs.Desktop, onClick = actions.openDesktop)
         PanelRow("Settings", icon = Glyphs.Settings, onClick = actions.openSettings)
     }
 
@@ -225,10 +213,11 @@ fun SessionsPane(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SessionRow(s: SessionSummary, current: Boolean, running: Boolean, modifier: Modifier, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun SessionRow(s: SessionSummary, current: Boolean, live: String?, modifier: Modifier, onClick: () -> Unit, onLongClick: () -> Unit) {
     val haptics = LocalHapticFeedback.current
     val bg by animateColorAsState(if (current) Gold.copy(alpha = 0.13f) else Color.Transparent, label = "row")
-    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(bg)
+    // Same cue as the desktop sidebar: a working session shimmers, one waiting for you pulses amber.
+    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(bg).shimmer(live != null, if (live == "waiting") Warn else Gold)
         .combinedClickable(onClick = onClick, onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onLongClick() })
         .padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
@@ -238,7 +227,7 @@ private fun SessionRow(s: SessionSummary, current: Boolean, running: Boolean, mo
             Text(meta, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
                 overflow = TextOverflow.Ellipsis)
         }
-        if (running) { Spacer(Modifier.width(8.dp)); StatusDot(Gold, pulse = true) }
+        if (live != null) { Spacer(Modifier.width(8.dp)); StatusDot(if (live == "waiting") Warn else Gold, pulse = true) }
         else if (s.pinned) { Spacer(Modifier.width(8.dp)); Icon(Glyphs.Pin, null, tint = Gold, modifier = Modifier.size(14.dp)) }
     }
 }
@@ -304,7 +293,6 @@ class SettingsActions(
     val useAuto: () -> Unit,
     val checkUpdate: () -> Unit,
     val installUpdate: () -> Unit,
-    val openDesktop: () -> Unit,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -330,8 +318,6 @@ fun SettingsScreen(
                 StatusPanel(state)
                 SectionLabel("Command approvals")
                 ApprovalPanel(state, actions.setApprovalMode)
-                SectionLabel("Tools")
-                Panel { PanelRow("Remote desktop", "Open your PC's screen in an RDP app", Glyphs.Desktop, onClick = actions.openDesktop) }
                 SectionLabel("This device")
                 Panel {
                     PanelRow("App version", update.installed.ifBlank { "?" }, Glyphs.Download, onClick = actions.checkUpdate) {
@@ -508,108 +494,6 @@ private fun ApprovalPanel(state: SystemState, onPick: (String) -> Unit) {
                 color = if (m?.first == "off") Bad else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp))
         }
-    }
-}
-
-// ================================================================ Desktop
-
-private data class RdpClient(val label: String, val pkg: String?, val uri: (DesktopInfo) -> String)
-
-private val rdpClients = listOf(
-    // aFreeRDP: FreeRDP's own client; KRdp is tested against FreeRDP.
-    RdpClient("aFreeRDP", "com.freerdp.afreerdp") { d ->
-        val user = d.username?.let { Uri.encode(it) + "@" } ?: ""
-        "freerdp://$user${d.host}:${d.port}/connect?clipboard=%2B&gfx=&dynamic-resolution=&network=auto"
-    },
-    RdpClient("another RDP app", null) { d -> d.rdpUri },
-)
-
-@Composable
-fun DesktopScreen(info: Result<DesktopInfo>?, statusOk: Boolean?, onLoad: () -> Unit, onBack: (() -> Unit)?) {
-    val context = LocalContext.current
-    LaunchedEffect(Unit) { onLoad() }
-    PageScaffold("Remote desktop", onBack) {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 16.dp)) {
-            Box(Modifier.fillMaxWidth().padding(vertical = 20.dp), contentAlignment = Alignment.Center) {
-                Box(Modifier.size(84.dp).background(MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape), contentAlignment = Alignment.Center) {
-                    Icon(Glyphs.Desktop, null, tint = Gold, modifier = Modifier.size(40.dp))
-                }
-            }
-            Text("Your real desktop session over RDP. Log in with your PC account password.",
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-            Spacer(Modifier.size(16.dp))
-            AnimatedContent(info, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "desktop") { res ->
-                when {
-                    res == null -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { TypingDots(Gold) }
-                    res.isFailure -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                        Text(res.exceptionOrNull()?.message ?: "Unavailable", color = Bad, textAlign = TextAlign.Center)
-                        OutlinedButton(onClick = onLoad, modifier = Modifier.padding(top = 8.dp)) { Text("Retry") }
-                    }
-                    else -> DesktopDetails(res.getOrThrow(), statusOk, context)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DesktopDetails(d: DesktopInfo, statusOk: Boolean?, context: Context) {
-    Column {
-        Panel {
-            PanelRow(when (statusOk) { true -> "Remote desktop is running"; false -> "Remote desktop is off on the PC"; null -> "Status unknown" },
-                icon = Glyphs.Bolt) { StatusDot(when (statusOk) { true -> Ok; false -> Bad; null -> Warn }) }
-            CopyRow("Address", "${d.host}:${d.port}", context)
-            d.dnsName?.takeIf { it.isNotEmpty() }?.let { CopyRow("Name", it, context) }
-            d.username?.let { CopyRow("User", it, context) }
-        }
-        Spacer(Modifier.size(16.dp))
-        rdpClients.forEach { c ->
-            val installed = c.pkg == null || isInstalled(context, c.pkg)
-            val primary = c.pkg != null
-            val label = if (installed) "Open in ${c.label}" else "Get ${c.label}"
-            if (primary) Button(onClick = { launch(context, c, d) }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                contentPadding = PaddingValues(vertical = 14.dp), shape = RoundedCornerShape(16.dp)) { Text(label, fontWeight = FontWeight.SemiBold) }
-            else OutlinedButton(onClick = { launch(context, c, d) }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                contentPadding = PaddingValues(vertical = 14.dp), shape = RoundedCornerShape(16.dp)) { Text(label) }
-        }
-        Text("aFreeRDP is the recommended client; Microsoft's Android client doesn't work with KRdp. " +
-            "If the screen stays black, turn off “gfx” in the bookmark settings.",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
-    }
-}
-
-@Composable
-private fun CopyRow(label: String, value: String, context: Context) {
-    Row(Modifier.fillMaxWidth().clickable { copy(context, value) }.padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(72.dp))
-        Text(value, fontFamily = FontFamily.Monospace, fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Icon(Glyphs.Copy, "Copy", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
-    }
-}
-
-private fun copy(context: Context, value: String) {
-    (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("value", value))
-    Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
-}
-
-private fun isInstalled(context: Context, pkg: String): Boolean =
-    runCatching { context.packageManager.getPackageInfo(pkg, 0); true }.getOrDefault(false)
-
-private fun launch(context: Context, c: RdpClient, d: DesktopInfo) {
-    if (c.pkg != null && !isInstalled(context, c.pkg)) {
-        val market = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=${c.pkg}"))
-        val web = Intent(Intent.ACTION_VIEW, Uri.parse("https://f-droid.org/packages/${c.pkg}/"))
-        try { context.startActivity(market) } catch (e: ActivityNotFoundException) { context.startActivity(web) }
-        return
-    }
-    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(c.uri(d))).apply { c.pkg?.let { setPackage(it) } }
-    try {
-        context.startActivity(intent)
-    } catch (e: ActivityNotFoundException) {
-        copy(context, "${d.host}:${d.port}")
-        Toast.makeText(context, "No RDP app handles this; address copied", Toast.LENGTH_LONG).show()
     }
 }
 

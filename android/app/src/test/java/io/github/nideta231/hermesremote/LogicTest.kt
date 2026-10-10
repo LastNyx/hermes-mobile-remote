@@ -11,8 +11,6 @@ import io.github.nideta231.hermesremote.data.LiveReducer
 import io.github.nideta231.hermesremote.data.PairingParser
 import io.github.nideta231.hermesremote.data.parseCatalog
 import io.github.nideta231.hermesremote.data.parseSession
-import io.github.nideta231.hermesremote.data.SseEvent
-import io.github.nideta231.hermesremote.data.SseParser
 import io.github.nideta231.hermesremote.data.Tailnet
 import io.github.nideta231.hermesremote.data.ToolStatus
 import org.json.JSONArray
@@ -25,77 +23,120 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LogicTest {
-    private fun ev(id: Long, name: String, data: String = "{}") = SseEvent(id, name, JSONObject(data))
-
-    @Test fun sseParserHandlesFramesAndKeepalives() {
-        val p = SseParser()
-        val lines = listOf(": keepalive", "", "id: 3", "event: message.delta", "data: {\"delta\":\"hi\"}", "",
-            "id: 4", "event: run.completed", "data: {\"output\":", "data: \"x\"}", "")
-        val out = lines.mapNotNull { p.feed(it) }
-        assertEquals(listOf(3L, 4L), out.map { it.id })
-        assertEquals("hi", out[0].data.getString("delta"))
-        assertEquals("x", out[1].data.getString("output"))
-    }
+    private fun ev(items: List<ChatItem>, type: String, data: String = "{}", key: String = type) =
+        LiveReducer.apply(items, type, JSONObject(data), key)
 
     @Test fun reducerStreamsToolsAndCompletion() {
         var items: List<ChatItem> = listOf(ChatItem.User("u", "run uname"))
-        items = LiveReducer.apply(items, ev(1, "tool.started", """{"tool":"terminal","preview":"uname -r"}"""))
+        items = ev(items, "tool.start", """{"tool_id":"c1","name":"terminal","context":"uname -r"}""", "1")
         assertEquals(ToolStatus.RUNNING, (items[1] as ChatItem.Tool).status)
-        items = LiveReducer.apply(items, ev(2, "tool.completed", """{"tool":"terminal","duration":0.4,"error":false,"preview":"ok"}"""))
-        assertEquals(ToolStatus.OK, (items[1] as ChatItem.Tool).status)
-        items = LiveReducer.apply(items, ev(3, "message.delta", """{"delta":"\n\n7.1"}"""))
-        items = LiveReducer.apply(items, ev(4, "message.delta", """{"delta":".8"}"""))
+        items = ev(items, "tool.complete", """{"tool_id":"c1","name":"terminal","duration_s":0.4,"result":{"output":"7.1.8","exit_code":0}}""", "2")
+        val tool = items[1] as ChatItem.Tool
+        assertEquals(ToolStatus.OK, tool.status)
+        assertEquals(0.4, tool.durationSec!!, 0.001)
+        items = ev(items, "message.delta", """{"text":"\n\n7.1"}""", "3")
+        items = ev(items, "message.delta", """{"text":".8"}""", "4")
         assertEquals("7.1.8", (items.last() as ChatItem.Assistant).text)
-        items = LiveReducer.apply(items, ev(5, "run.completed", """{"output":"7.1.8"}"""))
+        assertTrue((items.last() as ChatItem.Assistant).streaming)
+        items = ev(items, "message.complete", """{"text":"7.1.8","status":"complete"}""", "5")
         val last = items.last() as ChatItem.Assistant
+        assertEquals("7.1.8", last.text)
         assertFalse(last.streaming)
-        assertEquals(3, items.size) // no duplicate final bubble
+        assertEquals(3, items.size) // the final text is not duplicated
     }
 
-    @Test fun reducerCancelledMarksRunningToolsFailed() {
+    @Test fun failedToolResultIsMarkedFailed() {
         var items: List<ChatItem> = emptyList()
-        items = LiveReducer.apply(items, ev(1, "tool.started", """{"tool":"terminal","preview":"sleep 60"}"""))
-        items = LiveReducer.apply(items, ev(2, "run.cancelled", "{}"))
+        items = ev(items, "tool.start", """{"tool_id":"c1","name":"terminal","context":"false"}""", "1")
+        items = ev(items, "tool.complete", """{"tool_id":"c1","name":"terminal","result":{"output":"","exit_code":1}}""", "2")
         assertEquals(ToolStatus.FAILED, (items[0] as ChatItem.Tool).status)
-        assertTrue(items.last() is ChatItem.Notice)
     }
 
-    @Test fun reducerApprovalLifecycle() {
+    @Test fun interruptedTurnMarksRunningToolsFailed() {
         var items: List<ChatItem> = emptyList()
-        items = LiveReducer.apply(items, ev(1, "approval.request", """{"command":"rm -rf x","description":"recursive delete","choices":["once","session","deny"]}"""))
-        val a = items[0] as ChatItem.Approval
-        assertEquals(listOf("once", "session", "deny"), a.request.choices)
-        items = LiveReducer.apply(items, ev(2, "approval.responded", """{"choice":"deny"}"""))
-        assertEquals("deny", (items[0] as ChatItem.Approval).decided)
+        items = ev(items, "tool.start", """{"tool_id":"c1","name":"terminal","context":"sleep 60"}""", "1")
+        items = ev(items, "message.complete", """{"status":"interrupted"}""", "2")
+        assertEquals(ToolStatus.FAILED, (items[0] as ChatItem.Tool).status)
+        assertEquals("Stopped.", (items.last() as ChatItem.Notice).text)
     }
 
-    @Test fun historyAttachesToolResultsByCallId() {
+    @Test fun replyWithoutDeltasStillShows() {
+        val items = ev(listOf(ChatItem.User("u", "hi")), "message.complete", """{"text":"Hello!","status":"complete"}""")
+        assertEquals("Hello!", (items.last() as ChatItem.Assistant).text)
+    }
+
+    @Test fun reasoningStreamsIntoItsOwnBlockBeforeTheReply() {
+        var items: List<ChatItem> = listOf(ChatItem.User("u", "why"))
+        items = ev(items, "reasoning.delta", """{"text":"Let me think"}""", "1")
+        items = ev(items, "message.delta", """{"text":"Because"}""", "2")
+        assertEquals("Let me think", (items[1] as ChatItem.Thinking).text)
+        assertFalse((items[1] as ChatItem.Thinking).streaming)
+        assertEquals("Because", (items[2] as ChatItem.Assistant).text)
+    }
+
+    @Test fun spinnerStatusIsNotShownAsReasoning() {
+        val items = ev(listOf(ChatItem.User("u", "hi")), "thinking.delta", """{"text":"( ˘⌣˘)♡ reasoning..."}""")
+        assertEquals(1, items.size)
+    }
+
+    @Test fun approvalLifecycleAcrossScreens() {
+        val req = io.github.nideta231.hermesremote.data.parseApproval("srq-1",
+            JSONObject("""{"session_id":"s1","command":"rm -rf x","description":"recursive delete","choices":["once","session","deny"]}"""))
+        var items: List<ChatItem> = LiveReducer.withApproval(emptyList(), req)
+        items = LiveReducer.withApproval(items, req) // replayed on resume: still one
+        assertEquals(1, items.size)
+        assertEquals("rm -rf x", LiveReducer.openApproval(items)!!.request.command)
+        // Answered on the desktop: the backend cancels the phone's copy.
+        items = LiveReducer.resolve(items, "srq-1", "answered on another screen")
+        assertNull(LiveReducer.openApproval(items))
+        assertEquals("answered on another screen", (items[0] as ChatItem.Approval).decided)
+    }
+
+    @Test fun clarifyBatchParses() {
+        val r = io.github.nideta231.hermesremote.data.parseClarify("srq-2", JSONObject(
+            """{"session_id":"s1","questions":[{"qid":"a","question":"Color?","choices":["red","blue"]},{"qid":"b","question":"Size?"}]}"""))
+        assertTrue(r.batch)
+        assertEquals(listOf("red", "blue"), r.questions[0].choices)
+        val single = io.github.nideta231.hermesremote.data.parseClarify("srq-3", JSONObject("""{"question":"Proceed?","choices":["yes","no"]}"""))
+        assertFalse(single.batch)
+    }
+
+    @Test fun historyMapsDisplayTranscript() {
         val msgs = JSONArray("""[
-          {"id":"1","role":"user","content":"go"},
-          {"id":"2","role":"assistant","content":"","tool_calls":[{"id":"c1","function":{"name":"terminal","arguments":"{\"command\":\"uname -r\"}"}}]},
-          {"id":"3","role":"tool","content":"{\"output\":\"x\",\"exit_code\":1}","tool_call_id":"c1","tool_name":"terminal"},
-          {"id":"4","role":"assistant","content":"done"}]""")
+            {"role":"user","text":"go","row_id":1},
+            {"role":"assistant","text":"","reasoning":"plan it","row_id":2},
+            {"role":"tool","name":"terminal","context":"ls","tool_call_id":"c1","row_id":3},
+            {"role":"assistant","text":"done","row_id":4},
+            {"role":"user","text":"secret","display_kind":"hidden","row_id":5}
+        ]""")
         val items = HistoryMapper.map(msgs)
-        assertEquals(3, items.size)
-        val t = items[1] as ChatItem.Tool
-        assertEquals("uname -r", t.args)
-        assertEquals(ToolStatus.FAILED, t.status)
-        assertEquals("go", HistoryMapper.lastUserText(msgs))
-        assertEquals(0, HistoryMapper.withoutLastTurn(msgs).length())
+        assertEquals(4, items.size)
+        assertEquals("go", (items[0] as ChatItem.User).text)
+        assertEquals("plan it", (items[1] as ChatItem.Thinking).text)
+        assertEquals("ls", (items[2] as ChatItem.Tool).args)
+        assertEquals("done", (items[3] as ChatItem.Assistant).text)
+    }
+
+    @Test fun inflightTurnIsAppendedWhenAttachingMidRun() {
+        val history = listOf<ChatItem>(ChatItem.User("h1", "earlier"), ChatItem.Assistant("h2", "ok"))
+        val items = io.github.nideta231.hermesremote.data.withInflight(history,
+            JSONObject("""{"user":"now this","assistant":"Working on","streaming":true}"""))
+        assertEquals("now this", (items[2] as ChatItem.User).text)
+        assertTrue((items[3] as ChatItem.Assistant).streaming)
     }
 
     @Test fun catalogParsesAndDropsUnavailableProviders() {
+        // model.options as hermes serve returns it.
         val raw = JSONObject("""
-          {"current": {"model": "claude-opus-5-5", "provider": "anthropic"},
+          {"model": "claude-opus-5-5", "provider": "anthropic",
            "providers": [
-             {"slug": "anthropic", "name": "Anthropic", "current": true,
-              "models": ["claude-opus-5-5", "claude-sonnet-5"], "featured": ["claude-opus-5-5"]},
-             {"slug": "moa", "name": "Mixture of Agents", "current": false,
-              "models": ["default"], "featured": []}]}""")
+             {"slug": "anthropic", "name": "Anthropic", "is_current": true,
+              "models": ["claude-sonnet-5", "claude-opus-5-5"], "featured_models": ["claude-opus-5-5"]},
+             {"slug": "openai", "name": "OpenAI", "authenticated": false, "models": ["gpt-6"]},
+             {"slug": "moa", "name": "Mixture of Agents", "models": ["default", "gone"], "unavailable_models": ["gone"]}]}""")
         val cat = parseCatalog(raw)
         assertEquals("claude-opus-5-5", cat.currentModel)
-        assertEquals(3, cat.options.size)
-        // featured first inside a provider
+        // featured first inside a provider; unauthenticated providers and unavailable models dropped
         assertEquals(listOf("claude-opus-5-5", "claude-sonnet-5", "default"), cat.options.map { it.id })
         assertEquals("Mixture of Agents", cat.options.last().providerName)
         assertEquals("claude-opus-5-5", cat.selected?.id)

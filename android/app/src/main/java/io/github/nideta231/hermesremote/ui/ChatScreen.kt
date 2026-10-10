@@ -4,8 +4,11 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -42,17 +45,23 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -60,6 +69,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -71,26 +81,29 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.nideta231.hermesremote.ChatState
 import io.github.nideta231.hermesremote.ConnectionState
 import io.github.nideta231.hermesremote.Link
+import io.github.nideta231.hermesremote.ModelConfirm
 import io.github.nideta231.hermesremote.data.ChatItem
+import io.github.nideta231.hermesremote.data.LiveReducer
 import io.github.nideta231.hermesremote.data.ModelCatalog
 import io.github.nideta231.hermesremote.data.ModelOption
 import io.github.nideta231.hermesremote.data.REASONING_LEVELS
-import io.github.nideta231.hermesremote.data.SlashCommand
+import io.github.nideta231.hermesremote.data.SlashSuggestion
 import io.github.nideta231.hermesremote.data.ToolStatus
 import io.github.nideta231.hermesremote.data.Transport
-import io.github.nideta231.hermesremote.data.matchCommands
 import kotlinx.coroutines.launch
 
 /** Everything the chat screen can ask the app to do. */
@@ -99,15 +112,16 @@ class ChatActions(
     val stop: () -> Unit,
     val steer: (String) -> Unit,
     val approve: (String) -> Unit,
+    val answerClarify: (List<String>) -> Unit,
     val draft: (String) -> Unit,
     val togglePin: () -> Unit,
     val newChat: () -> Unit,
     val openDrawer: () -> Unit,
     val openSettings: () -> Unit,
     val loadModels: () -> Unit,
-    val chooseModel: (ModelOption?) -> Unit,
+    val chooseModel: (ModelOption?, Boolean) -> Unit,
+    val dismissConfirm: () -> Unit,
     val setReasoning: (String?) -> Unit,
-    val loadCommands: () -> Unit,
     val modelPickerOpened: () -> Unit,
 )
 
@@ -126,23 +140,22 @@ fun ChatScreen(
     state: ChatState,
     health: LinkHealth,
     catalog: ModelCatalog?,
-    choice: ModelOption?,
+    model: ModelOption?,
     reasoning: String?,
-    commands: List<SlashCommand>,
+    suggestions: List<SlashSuggestion>,
     openModelPicker: Boolean,
+    confirm: ModelConfirm?,
     showMenuButton: Boolean,
     actions: ChatActions,
 ) {
     var modelSheet by remember { mutableStateOf(false) }
     var reasoningSheet by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        if (catalog == null) actions.loadModels()
-        actions.loadCommands() // warm the PC-side command process before the user types "/"
-    }
+    LaunchedEffect(Unit) { if (catalog == null) actions.loadModels() }
     LaunchedEffect(openModelPicker) {
         if (openModelPicker) { modelSheet = true; actions.modelPickerOpened() }
     }
-    val pending = state.items.lastOrNull { it is ChatItem.Approval && it.decided == null } as? ChatItem.Approval
+    val approval = LiveReducer.openApproval(state.items)
+    val clarify = LiveReducer.openClarify(state.items)
 
     Column(Modifier.fillMaxSize().imePadding()) {
         ChatTopBar(state, health, showMenuButton, actions)
@@ -150,32 +163,47 @@ fun ChatScreen(
         Box(Modifier.weight(1f).fillMaxWidth()) {
             AnimatedContent(
                 targetState = when {
-                    state.loading -> 0
+                    state.loading && state.items.isEmpty() -> 0
                     state.items.isEmpty() -> 1
                     else -> 2
                 },
-                transitionSpec = { fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) togetherWith fadeOut() },
+                transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(150)) },
                 label = "chat-body",
             ) { body ->
                 when (body) {
-                    0 -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { TypingDots(Gold) }
+                    0 -> LoadingChat()
                     1 -> EmptyChat(onPick = { actions.draft(it) })
                     else -> MessageList(state)
                 }
             }
         }
-        AnimatedVisibility(pending != null && state.run?.status == "waiting_for_approval",
-            enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-            pending?.let { ApprovalDock(it, actions.approve) }
+        // Questions slide up from the composer, like a sheet the agent raised.
+        AnimatedVisibility(approval != null,
+            enter = slideInVertically(spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow)) { it } + fadeIn(),
+            exit = slideOutVertically(tween(180)) { it } + fadeOut(tween(180))) {
+            approval?.let { ApprovalDock(it, actions.approve) }
         }
-        SlashSuggestions(state, commands, actions.loadCommands, actions.draft)
-        Composer(state, catalog, choice, reasoning, actions,
+        AnimatedVisibility(clarify != null && approval == null,
+            enter = slideInVertically(spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow)) { it } + fadeIn(),
+            exit = slideOutVertically(tween(180)) { it } + fadeOut(tween(180))) {
+            clarify?.let { ClarifyDock(it, actions.answerClarify) }
+        }
+        SlashSuggestions(state, suggestions, actions.draft)
+        Composer(state, catalog, model, reasoning, actions,
             onModel = { actions.loadModels(); modelSheet = true },
             onReasoning = { actions.loadModels(); reasoningSheet = true })
     }
 
-    if (modelSheet) ModelSheet(catalog, choice, onDismiss = { modelSheet = false }) { actions.chooseModel(it); modelSheet = false }
+    if (modelSheet) ModelSheet(catalog, model, state.sessionId == null, onDismiss = { modelSheet = false }) {
+        actions.chooseModel(it, false); modelSheet = false
+    }
     if (reasoningSheet) ReasoningSheet(catalog, reasoning, onDismiss = { reasoningSheet = false }) { actions.setReasoning(it); reasoningSheet = false }
+    confirm?.let { c ->
+        AlertDialog(onDismissRequest = actions.dismissConfirm, title = { Text("Switch to ${c.option.label}?") },
+            text = { Text(c.message) },
+            confirmButton = { TextButton(onClick = { actions.chooseModel(c.option, true) }) { Text("Switch") } },
+            dismissButton = { TextButton(onClick = actions.dismissConfirm) { Text("Cancel") } })
+    }
 }
 
 // ------------------------------------------------------------------ top bar
@@ -196,10 +224,9 @@ private fun ChatTopBar(state: ChatState, health: LinkHealth, showMenu: Boolean, 
                 }
                 val (label, color, pulse) = when {
                     state.link == Link.RECONNECTING -> Triple("Reconnecting…", Warn, true)
-                    state.run?.status == "waiting_for_approval" -> Triple("Needs your approval", Warn, true)
-                    state.run?.status == "stopping" -> Triple("Stopping…", Warn, true)
+                    state.waiting -> Triple("Needs your answer", Warn, true)
+                    state.status == "starting" -> Triple("Starting…", Gold, true)
                     state.busy -> Triple("Working…", Gold, true)
-                    state.remoteActive -> Triple("Running on another device", MaterialTheme.colorScheme.primary, true)
                     state.sessionId == null -> Triple("New conversation", MaterialTheme.colorScheme.onSurfaceVariant, false)
                     else -> Triple("Idle", MaterialTheme.colorScheme.onSurfaceVariant, false)
                 }
@@ -256,7 +283,20 @@ private fun ConnectionBanner(state: ChatState, health: LinkHealth, onOpen: () ->
     }
 }
 
-// ------------------------------------------------------------------ empty state
+// ------------------------------------------------------------------ empty + loading
+
+/** Skeleton lines shimmering while a chat opens: shows where content will be instead of a spinner. */
+@Composable
+private fun LoadingChat() {
+    Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        listOf(0.55f to true, 0.9f to false, 0.75f to false, 0.4f to true, 0.85f to false).forEach { (w, user) ->
+            Box(Modifier.fillMaxWidth(), contentAlignment = if (user) Alignment.CenterEnd else Alignment.CenterStart) {
+                Box(Modifier.fillMaxWidth(w).heightIn(min = if (user) 38.dp else 54.dp).clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainer).shimmer(true, Color.White))
+            }
+        }
+    }
+}
 
 private val starters = listOf(
     "What's using the most disk space on my PC?",
@@ -275,9 +315,8 @@ private fun EmptyChat(onPick: (String) -> Unit) {
         Spacer(Modifier.size(16.dp))
         Text("What should Hermes do?", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.size(6.dp))
-        Text("It runs on your PC with its full toolset. Type / for commands and skills.",
-            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        Text("Same Hermes as your desktop app: chats started here show up there, live. Type / for commands and skills.",
+            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         Spacer(Modifier.size(24.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -304,36 +343,40 @@ private fun MessageList(state: ChatState) {
             if (scrolling) follow = !canFwd
         }
     }
+    // Keys already on screen when the chat opened (history) appear at once; only items that
+    // arrive afterwards fade and rise in. Kept for the list's lifetime, so scrolling an item out
+    // and back never replays its entrance (the old "chat fading in and out" bug).
+    val seen = remember(state.sessionId) { HashSet<String>(state.items.map { it.key }) }
     val lastText = (state.items.lastOrNull() as? ChatItem.Assistant)?.text?.length ?: 0
-    // The keyboard shrinks the viewport while the list keeps its top anchored; re-pin to the bottom.
     val viewport by remember { derivedStateOf { listState.layoutInfo.viewportSize.height } }
     LaunchedEffect(state.items.size, lastText, viewport, state.busy) {
         if (follow && state.items.isNotEmpty()) listState.scrollToItem(listState.layoutInfo.totalItemsCount.coerceAtLeast(1) - 1, Int.MAX_VALUE / 2)
     }
-    val thinking = state.busy && state.run?.status != "waiting_for_approval" &&
-        state.items.lastOrNull().let { it !is ChatItem.Assistant || !it.streaming }
+    val last = state.items.lastOrNull()
+    val thinking = state.busy && !state.waiting &&
+        !(last is ChatItem.Assistant && last.streaming) && !(last is ChatItem.Thinking && last.streaming) &&
+        !(last is ChatItem.Tool && last.status == ToolStatus.RUNNING)
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(state.items, key = { it.key }) { item ->
-                // Placement animates; appearance does not. The fade springs made the chat flash
-                // in and out whenever items re-entered composition (keyboard show/hide, sending,
-                // streaming), which read as the whole conversation fading.
-                Box(Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)) {
+                Box(Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null).entrance(item.key, seen)) {
                     when (item) {
                         is ChatItem.User -> UserBubble(item)
                         is ChatItem.Assistant -> AssistantBlock(item)
+                        is ChatItem.Thinking -> ThinkingBlock(item)
                         is ChatItem.Tool -> ToolRow(item)
                         is ChatItem.Approval -> if (item.decided != null) ApprovalRecord(item)
+                        is ChatItem.Clarify -> if (item.answer != null) ClarifyRecord(item)
                         is ChatItem.Notice -> NoticeLine(item)
                         is ChatItem.CommandOutput -> CommandOutputCard(item)
                     }
                 }
             }
-            if (thinking) item(key = "thinking") {
-                Row(Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null).padding(start = 6.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) { TypingDots(Gold) }
+            if (thinking) item(key = "typing") {
+                Box(Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null).entrance("typing", HashSet())) { TypingIndicator() }
             }
         }
         AnimatedVisibility(!follow, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
@@ -345,6 +388,30 @@ private fun MessageList(state: ChatState) {
                 Icon(Glyphs.Down, "Jump to latest", modifier = Modifier.size(18.dp))
             }
         }
+    }
+}
+
+/** New items fade in and rise 12 dp with a soft spring; items in [seen] are shown as-is. */
+@Composable
+private fun Modifier.entrance(key: String, seen: HashSet<String>): Modifier {
+    val fresh = remember(key) { seen.add(key) }
+    val p = remember(key) { Animatable(if (fresh) 0f else 1f) }
+    LaunchedEffect(key) { if (p.value < 1f) p.animateTo(1f, spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)) }
+    return graphicsLayer {
+        alpha = p.value
+        translationY = (1f - p.value) * 12.dp.toPx()
+    }
+}
+
+/** The agent is busy but nothing is streaming yet: bouncing dots and a shimmering label. */
+@Composable
+private fun TypingIndicator() {
+    Row(Modifier.padding(start = 4.dp, top = 2.dp, bottom = 2.dp).clip(RoundedCornerShape(14.dp))
+        .background(MaterialTheme.colorScheme.surfaceContainer).shimmer(true)
+        .padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+        TypingDots(Gold)
+        Spacer(Modifier.width(10.dp))
+        Text("Thinking", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -361,8 +428,9 @@ private fun copyable(text: String): Modifier {
 
 @Composable
 private fun UserBubble(item: ChatItem.User) {
+    val alpha by animateFloatAsState(if (item.pending) 0.10f else 0.17f, label = "bubble")
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-        Surface(color = Gold.copy(alpha = if (item.pending) 0.10f else 0.17f), shape = RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp),
+        Surface(color = Gold.copy(alpha = alpha), shape = RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp),
             modifier = Modifier.widthIn(max = 560.dp).padding(start = 40.dp).clip(RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp)).then(copyable(item.text))) {
             Text(item.text, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                 style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 21.sp),
@@ -373,8 +441,32 @@ private fun UserBubble(item: ChatItem.User) {
 
 @Composable
 private fun AssistantBlock(item: ChatItem.Assistant) {
+    val shown = rememberSmoothText(item.text, item.streaming)
+    val caretOn by animateFloatAsState(if (item.streaming) 1f else 0f, tween(250), label = "caret")
     Column(Modifier.fillMaxWidth().padding(end = 8.dp)) {
-        MarkdownText(item.text + if (item.streaming) " ▍" else "")
+        MarkdownText(if (caretOn > 0.01f) "$shown ▍" else shown)
+    }
+}
+
+/** The model's reasoning: one shimmering line while it thinks, expandable afterwards. */
+@Composable
+private fun ThinkingBlock(item: ChatItem.Thinking) {
+    var open by rememberSaveable(item.key) { mutableStateOf(false) }
+    val rot by animateFloatAsState(if (open) 180f else 0f, label = "chev")
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { open = !open }
+        .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)).padding(horizontal = 6.dp, vertical = 4.dp)) {
+        Row(Modifier.shimmer(item.streaming), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Glyphs.Brain, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(if (item.streaming) "Thinking…" else "Thought", style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(4.dp))
+            Icon(Glyphs.Chevron, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp).rotate(rot))
+        }
+        if (open) {
+            Text(item.text, style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 20.dp, top = 6.dp))
+        }
     }
 }
 
@@ -388,17 +480,17 @@ private fun NoticeLine(item: ChatItem.Notice) {
 @Composable
 private fun ToolRow(item: ChatItem.Tool) {
     var open by rememberSaveable(item.key) { mutableStateOf(false) }
-    val color = when (item.status) {
+    val color by animateColorAsState(when (item.status) {
         ToolStatus.RUNNING -> Gold
         ToolStatus.OK -> Ok
         ToolStatus.FAILED -> Bad
-    }
+    }, label = "tool-status")
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(14.dp),
-        modifier = Modifier.fillMaxWidth().animateContentSize(spring(stiffness = Spring.StiffnessMediumLow))) {
-        Column(Modifier.clickable(enabled = item.result != null) { open = !open }.padding(horizontal = 12.dp, vertical = 9.dp)) {
+        modifier = Modifier.fillMaxWidth().animateContentSize(spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow))) {
+        Column(Modifier.shimmer(item.status == ToolStatus.RUNNING).clickable(enabled = item.result != null) { open = !open }
+            .padding(horizontal = 12.dp, vertical = 9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (item.status == ToolStatus.RUNNING) StatusDot(color, pulse = true, size = 8)
-                else StatusDot(color, size = 8)
+                StatusDot(color, pulse = item.status == ToolStatus.RUNNING, size = 8)
                 Spacer(Modifier.width(10.dp))
                 Icon(Glyphs.Terminal, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
                 Spacer(Modifier.width(6.dp))
@@ -410,7 +502,7 @@ private fun ToolRow(item: ChatItem.Tool) {
                     Text(" %.1fs".format(it), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (item.result != null) {
-                    val rot by androidx.compose.animation.core.animateFloatAsState(if (open) 180f else 0f, label = "chev")
+                    val rot by animateFloatAsState(if (open) 180f else 0f, label = "chev")
                     Icon(Glyphs.Chevron, null, tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(16.dp).rotate(rot))
                 }
@@ -439,15 +531,17 @@ internal fun readableToolResult(raw: String): String {
 @Composable
 private fun CommandOutputCard(item: ChatItem.CommandOutput) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(14.dp),
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).then(copyable(item.text))) {
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).then(copyable(item.text)).animateContentSize()) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Glyphs.Terminal, null, tint = Gold, modifier = Modifier.size(14.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(item.command, style = MaterialTheme.typography.labelLarge, color = Gold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Text(item.text.trimEnd(), fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 16.sp,
-                modifier = Modifier.padding(top = 6.dp).horizontalScroll(rememberScrollState()))
+            if (item.text.isNotBlank()) {
+                Text(item.text.trimEnd(), fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 16.sp,
+                    modifier = Modifier.padding(top = 6.dp).horizontalScroll(rememberScrollState()))
+            }
         }
     }
 }
@@ -460,13 +554,24 @@ private fun ApprovalRecord(item: ChatItem.Approval) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Glyphs.Shield, null, tint = Warn, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Approval: ${choiceLabel(item.decided ?: "")}",
-                    style = MaterialTheme.typography.labelLarge, color = Warn)
+                Text("Approval: ${choiceLabel(item.decided ?: "")}", style = MaterialTheme.typography.labelLarge, color = Warn)
             }
             item.request.command?.let {
                 Text(it, fontFamily = FontFamily.Monospace, fontSize = 12.sp, maxLines = 4, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 6.dp))
             }
+        }
+    }
+}
+
+@Composable
+private fun ClarifyRecord(item: ChatItem.Clarify) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp)) {
+            item.request.questions.forEach { q ->
+                Text(q.question, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text(item.answer.orEmpty(), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
         }
     }
 }
@@ -503,20 +608,69 @@ private fun ApprovalDock(item: ChatItem.Approval, onApproval: (String) -> Unit) 
             val choices = item.request.choices
             Row(Modifier.padding(top = 12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if ("deny" in choices) {
-                    androidx.compose.material3.OutlinedButton(onClick = { onApproval("deny") }, modifier = Modifier.weight(1f),
-                        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = Bad)) { Text("Deny") }
+                    OutlinedButton(onClick = { onApproval("deny") }, modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Bad)) { Text("Deny") }
                 }
                 if ("once" in choices) {
-                    androidx.compose.material3.Button(onClick = { onApproval("once") }, modifier = Modifier.weight(1f)) { Text("Allow") }
+                    Button(onClick = { onApproval("once") }, modifier = Modifier.weight(1f)) { Text("Allow") }
                 }
             }
             val extra = choices.filter { it == "session" || it == "always" }
             if (extra.isNotEmpty()) {
                 Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.Center) {
-                    extra.forEach { c ->
-                        androidx.compose.material3.TextButton(onClick = { onApproval(c) }) { Text(choiceLabel(c), maxLines = 1) }
+                    extra.forEach { c -> TextButton(onClick = { onApproval(c) }) { Text(choiceLabel(c), maxLines = 1) } }
+                }
+            }
+        }
+    }
+}
+
+/** The clarify tool's question(s): tap a choice, or type an answer. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ClarifyDock(item: ChatItem.Clarify, onAnswer: (List<String>) -> Unit) {
+    val haptics = LocalHapticFeedback.current
+    LaunchedEffect(item.key) { haptics.performHapticFeedback(HapticFeedbackType.LongPress) }
+    val questions = item.request.questions
+    val answers = remember(item.key) { mutableStateListOf(*Array(questions.size) { "" }) }
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        tonalElevation = 2.dp) {
+        Column(Modifier.fillMaxWidth().heightIn(max = 460.dp).verticalScroll(rememberScrollState()).padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(32.dp).background(Gold.copy(alpha = 0.18f), CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Glyphs.Spark, null, tint = Gold, modifier = Modifier.size(18.dp))
+                }
+                Spacer(Modifier.width(12.dp))
+                Text(if (questions.size > 1) "Hermes has ${questions.size} questions" else "Hermes asks", fontWeight = FontWeight.SemiBold)
+            }
+            questions.forEachIndexed { i, q ->
+                Text(q.question, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp))
+                if (q.choices.isNotEmpty()) {
+                    FlowRow(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        q.choices.forEach { c ->
+                            val picked = if (q.multiSelect) c in answers[i].split(", ") else answers[i] == c
+                            val bg by animateColorAsState(if (picked) Gold.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceContainerHighest, label = "choice")
+                            Surface(shape = RoundedCornerShape(12.dp), color = bg, modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable {
+                                answers[i] = if (q.multiSelect) {
+                                    val set = answers[i].split(", ").filter { it.isNotBlank() }.toMutableList()
+                                    if (c in set) set.remove(c) else set.add(c)
+                                    set.joinToString(", ")
+                                } else c
+                                // One question, one choice: answer right away like the desktop.
+                                if (questions.size == 1 && !q.multiSelect) onAnswer(listOf(c))
+                            }) {
+                                Text(c, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp))
+                            }
+                        }
                     }
                 }
+                OutlinedTextField(answers[i], { answers[i] = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    placeholder = { Text(if (q.choices.isEmpty()) "Your answer" else "Or type your own") },
+                    shape = RoundedCornerShape(14.dp), maxLines = 4)
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { onAnswer(questions.map { "" }) }, modifier = Modifier.weight(1f)) { Text("Skip") }
+                Button(onClick = { onAnswer(answers.toList()) }, enabled = answers.any { it.isNotBlank() }, modifier = Modifier.weight(1f)) { Text("Answer") }
             }
         }
     }
@@ -525,38 +679,25 @@ private fun ApprovalDock(item: ChatItem.Approval, onApproval: (String) -> Unit) 
 // ------------------------------------------------------------------ composer
 
 @Composable
-private fun SlashSuggestions(state: ChatState, commands: List<SlashCommand>, onLoad: () -> Unit, onDraft: (String) -> Unit) {
-    val typing = state.draft.startsWith("/") && !state.busy
-    LaunchedEffect(typing) { if (typing) onLoad() }
-    val matches = remember(commands, state.draft) { if (typing) matchCommands(commands, state.draft) else emptyList() }
-    AnimatedVisibility(typing && (matches.isNotEmpty() || (commands.isEmpty() && !state.draft.contains(' '))),
+private fun SlashSuggestions(state: ChatState, suggestions: List<SlashSuggestion>, onDraft: (String) -> Unit) {
+    val typing = state.draft.startsWith("/") && !state.draft.contains(' ')
+    AnimatedVisibility(typing && suggestions.isNotEmpty(),
         enter = expandVertically(expandFrom = Alignment.Bottom) + fadeIn(), exit = shrinkVertically(shrinkTowards = Alignment.Bottom) + fadeOut()) {
         Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)) {
-            if (matches.isEmpty()) {
-                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TypingDots(); Spacer(Modifier.width(10.dp))
-                    Text("Loading commands", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                return@Surface
-            }
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 260.dp), contentPadding = PaddingValues(vertical = 6.dp)) {
-                items(matches, key = { it.name }) { c ->
-                    Row(Modifier.fillMaxWidth().clickable { onDraft("/${c.name} ") }.padding(horizontal = 16.dp, vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        val icon = when (c.kind) { "skill" -> Glyphs.Spark; "app" -> Glyphs.Bolt; else -> Glyphs.Terminal }
-                        Icon(icon, null, tint = if (c.kind == "skill") Gold else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                items(suggestions, key = { it.text }) { c ->
+                    Row(Modifier.fillMaxWidth().animateItem().clickable { onDraft(c.text.trimEnd() + " ") }
+                        .padding(horizontal = 16.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(if (c.skill) Glyphs.Spark else Glyphs.Terminal, null,
+                            tint = if (c.skill) Gold else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("/${c.name}", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
-                                if (c.args.isNotEmpty()) {
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(c.args, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                            }
-                            Text(c.description, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            Text(c.display, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (c.meta.isNotBlank()) {
+                                Text(c.meta, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
                         }
                     }
                 }
@@ -575,7 +716,7 @@ private fun effortLabel(level: String) = when (level) {
 private fun Composer(
     state: ChatState,
     catalog: ModelCatalog?,
-    choice: ModelOption?,
+    model: ModelOption?,
     reasoning: String?,
     actions: ChatActions,
     onModel: () -> Unit,
@@ -599,10 +740,10 @@ private fun Composer(
                             unfocusedIndicatorColor = Color.Transparent, disabledIndicatorColor = Color.Transparent),
                     )
                     Row(Modifier.fillMaxWidth().padding(start = 10.dp, end = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        val modelLabel = choice?.label ?: state.sessionModel?.substringAfterLast('/') ?: catalog?.currentModel?.substringAfterLast('/') ?: "Model"
+                        val modelLabel = model?.label ?: catalog?.currentModel?.substringAfterLast('/') ?: "Model"
                         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                             Pill(modelLabel, Glyphs.Chip, modifier = Modifier.weight(1f, fill = false),
-                                tint = if (choice != null) Gold else MaterialTheme.colorScheme.onSurfaceVariant, onClick = onModel)
+                                tint = if (model != null) Gold else MaterialTheme.colorScheme.onSurfaceVariant, onClick = onModel)
                             Spacer(Modifier.width(6.dp))
                             Pill(reasoning?.let(::effortLabel) ?: "Auto", Glyphs.Brain,
                                 tint = if (reasoning != null) Gold else MaterialTheme.colorScheme.onSurfaceVariant, onClick = onReasoning)
@@ -612,7 +753,7 @@ private fun Composer(
                             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             // The view model clears the draft only when the send is accepted, so a
                             // refused send keeps its text here instead of losing it.
-                            if (state.busy) actions.steer(text) else actions.send(text)
+                            if (state.busy && !text.trimStart().startsWith("/")) actions.steer(text) else actions.send(text)
                         }, onStop = actions.stop)
                     }
                 }
@@ -628,12 +769,12 @@ private fun SendButton(state: ChatState, text: String, onSend: () -> Unit, onSto
     val mode = when {
         state.sending -> SendMode.SENDING
         state.busy && text.isBlank() -> SendMode.STOP
-        state.busy -> SendMode.STEER
+        state.busy && !text.trimStart().startsWith("/") -> SendMode.STEER
         else -> SendMode.SEND
     }
     val enabled = when (mode) {
         SendMode.SEND, SendMode.STEER -> text.isNotBlank()
-        SendMode.STOP -> state.run?.status != "stopping"
+        SendMode.STOP -> true
         SendMode.SENDING -> false
     }
     val bg by animateColorAsState(when {
@@ -641,7 +782,8 @@ private fun SendButton(state: ChatState, text: String, onSend: () -> Unit, onSto
         enabled -> Gold
         else -> MaterialTheme.colorScheme.surfaceContainerHighest
     }, label = "send-bg")
-    Box(Modifier.size(42.dp).clip(CircleShape).background(bg).clickable(enabled = enabled) {
+    val scale by animateFloatAsState(if (enabled) 1f else 0.92f, spring(dampingRatio = 0.6f), label = "send-scale")
+    Box(Modifier.size(42.dp).graphicsLayer { scaleX = scale; scaleY = scale }.clip(CircleShape).background(bg).clickable(enabled = enabled) {
         if (mode == SendMode.STOP) onStop() else onSend()
     }, contentAlignment = Alignment.Center) {
         AnimatedContent(mode, transitionSpec = { (scaleIn() + fadeIn()) togetherWith (scaleOut() + fadeOut()) }, label = "send") { m ->
@@ -660,13 +802,13 @@ private fun SendButton(state: ChatState, text: String, onSend: () -> Unit, onSto
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ModelSheet(catalog: ModelCatalog?, choice: ModelOption?, onDismiss: () -> Unit, onPick: (ModelOption?) -> Unit) {
+private fun ModelSheet(catalog: ModelCatalog?, current: ModelOption?, newChat: Boolean, onDismiss: () -> Unit, onPick: (ModelOption?) -> Unit) {
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = MaterialTheme.colorScheme.surfaceContainer) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
             Text("Model", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-            Text("Used for your next messages from this phone.", style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(if (newChat) "Used by the chat you start next." else "Switches this chat, here and on the desktop.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.size(12.dp))
             if (catalog == null) {
                 Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { TypingDots(Gold) }
@@ -681,14 +823,14 @@ private fun ModelSheet(catalog: ModelCatalog?, choice: ModelOption?, onDismiss: 
                 }.groupBy { it.providerName }
             }
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
-                item {
-                    SheetOption("Session default", "Whatever this chat already uses", selected = choice == null) { onPick(null) }
+                if (newChat) item {
+                    SheetOption("Hermes default", "Whatever Hermes is configured to use", selected = current == null) { onPick(null) }
                 }
                 groups.forEach { (provider, options) ->
                     item(key = "h-$provider") { SectionLabel(provider, Modifier.padding(top = 8.dp)) }
                     items(options, key = { "${it.provider}/${it.id}" }) { o ->
-                        SheetOption(o.label, if (o.current) "Current default" else null,
-                            selected = choice?.id == o.id && choice.provider == o.provider) { onPick(o) }
+                        SheetOption(o.label, if (o.current) "Hermes default" else null,
+                            selected = current?.id == o.id && (current.provider.isEmpty() || current.provider == o.provider)) { onPick(o) }
                     }
                 }
                 if (groups.isEmpty()) item {

@@ -24,12 +24,22 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
@@ -149,6 +159,58 @@ fun PanelRow(
         }
         trailing()
     }
+}
+
+/**
+ * A soft light band sweeping left to right across the content: the desktop sidebar's "working"
+ * row. Drawn over the content, so text stays readable and nothing re-lays out.
+ */
+fun Modifier.shimmer(active: Boolean, color: Color = Gold): Modifier = if (!active) this else composed {
+    val t = rememberInfiniteTransition(label = "shimmer")
+    val x by t.animateFloat(-0.4f, 1.4f, infiniteRepeatable(tween(1500, easing = LinearEasing), RepeatMode.Restart), label = "x")
+    drawWithContent {
+        drawContent()
+        val band = size.width * 0.45f
+        val center = size.width * x
+        drawRect(Brush.horizontalGradient(
+            listOf(Color.Transparent, color.copy(alpha = 0.16f), Color.Transparent),
+            startX = center - band, endX = center + band))
+    }
+}
+
+/**
+ * How many characters of a streaming reply to show after [elapsedMs] more milliseconds.
+ * Text arrives in bursts; revealing it at a steady pace that speeds up with the backlog reads
+ * like typing instead of jumps, and even a 600-char burst is caught up in under a second.
+ */
+fun nextRevealLength(shown: Int, target: Int, elapsedMs: Long): Int {
+    if (shown >= target) return target
+    val backlog = target - shown
+    // Close ~1/120 of the gap per ms (exponential catch-up), never slower than ~120 chars/s.
+    val perMs = maxOf(0.12f, backlog / 120f)
+    val step = maxOf(1, (perMs * elapsedMs).toInt())
+    return minOf(target, shown + step)
+}
+
+/** [text] revealed smoothly while [streaming]; shown at once otherwise (history, finished replies). */
+@Composable
+fun rememberSmoothText(text: String, streaming: Boolean): String {
+    var shown by remember { mutableIntStateOf(if (streaming) 0 else text.length) }
+    if (!streaming && shown != text.length) shown = text.length
+    if (shown > text.length) shown = text.length
+    // Latest target for the reveal loop without restarting it on every delta.
+    val latest by rememberUpdatedState(text)
+    LaunchedEffect(streaming) {
+        if (!streaming) return@LaunchedEffect
+        var last = withFrameMillis { it }
+        while (true) {
+            val now = withFrameMillis { it }
+            val target = latest.length
+            if (shown < target) shown = nextRevealLength(shown, target, now - last)
+            last = now
+        }
+    }
+    return text.substring(0, shown.coerceIn(0, text.length))
 }
 
 /** Small rounded pill: model / reasoning selectors, connection badge. */

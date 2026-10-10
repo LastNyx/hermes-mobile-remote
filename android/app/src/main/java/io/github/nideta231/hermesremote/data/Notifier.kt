@@ -12,8 +12,9 @@ import io.github.nideta231.hermesremote.MainActivity
 import io.github.nideta231.hermesremote.R
 
 /**
- * The app's notifications. Only events worth interrupting someone for: a run that needs a
- * decision, and a run that ended while the app was closed. Tool progress stays silent.
+ * The app's notifications. Only events worth interrupting someone for: a turn that needs a
+ * decision (approval, a clarify question), and a turn that ended while the app was off screen.
+ * Tool progress stays silent.
  *
  * Channels use the system defaults (sound, vibration, heads-up for approvals) so the user's own
  * Android notification settings apply; tapping opens the session the notification is about.
@@ -30,14 +31,14 @@ object Notifier {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         manager.createNotificationChannels(listOf(
             NotificationChannel(CHANNEL_APPROVALS, "Approval requests", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "Hermes is paused until you allow or deny a command"
+                description = "Hermes is paused until you answer"
             },
             NotificationChannel(CHANNEL_RESULTS, "Finished tasks", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "A task you started from this device finished, failed or was stopped"
+                description = "A task in a chat open on this device finished, failed or was stopped"
             },
             // Required by Android for a foreground service; silent and collapsed.
             NotificationChannel(CHANNEL_WATCH, "Task in progress", NotificationManager.IMPORTANCE_MIN).apply {
-                description = "Shown while Hermes Remote waits for a task to finish"
+                description = "Shown while Hermes Remote stays connected for a running task"
                 setShowBadge(false)
             },
         ))
@@ -46,54 +47,60 @@ object Notifier {
     fun watchNotification(context: Context): Notification =
         NotificationCompat.Builder(context, CHANNEL_WATCH)
             .setContentTitle("Hermes is working")
-            .setContentText("You'll be notified when it finishes")
+            .setContentText("You'll be notified when it finishes or needs you")
             .setSmallIcon(R.drawable.ic_stat_hermes)
             .setOngoing(true)
             .setSilent(true)
             .setContentIntent(openApp(context, null, 0))
             .build()
 
-    fun postRunFinished(context: Context, runId: String, sessionId: String?, title: String?, status: String, reply: String?) {
+    fun postTurnFinished(context: Context, key: String, sessionId: String?, title: String?, status: String, reply: String?) {
         val where = title?.takeIf { it.isNotBlank() } ?: "Hermes"
         val (heading, fallback) = when (status) {
-            "completed" -> where to "Finished."
-            "failed" -> "Failed: $where" to "The task ended with an error. Tap to see what happened."
-            "cancelled", "interrupted" -> "Stopped: $where" to "The task was stopped before it finished."
+            "complete" -> where to "Finished."
+            "error" -> "Failed: $where" to "The task ended with an error. Tap to see what happened."
+            "interrupted" -> "Stopped: $where" to "The task was stopped before it finished."
             else -> where to "Task ended ($status)."
         }
         val body = reply?.let(::plain)?.takeIf { it.isNotBlank() }?.take(600) ?: fallback
-        post(context, CHANNEL_RESULTS, resultId(runId), heading, body, runId, sessionId,
-            NotificationCompat.CATEGORY_MESSAGE)
+        // One "finished" alert per session: a newer turn replaces the older one.
+        post(context, CHANNEL_RESULTS, resultId(sessionId ?: key), heading, body, sessionId, NotificationCompat.CATEGORY_MESSAGE)
     }
 
-    fun postApprovalNeeded(context: Context, runId: String, sessionId: String?, title: String?, request: ApprovalRequest?) {
-        val body = listOfNotNull(request?.description, request?.command?.let { "$ $it" })
+    fun postApprovalNeeded(context: Context, requestId: String, sessionId: String?, title: String?, request: ApprovalRequest) {
+        val body = listOfNotNull(request.description?.takeIf { it.isNotBlank() }, request.command?.takeIf { it.isNotBlank() }?.let { "$ $it" })
             .joinToString("\n").ifBlank { "Hermes is waiting for your decision." }
-        post(context, CHANNEL_APPROVALS, approvalId(runId),
+        post(context, CHANNEL_APPROVALS, questionId(requestId),
             "Approval needed${title?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()}",
-            body.take(600), runId, sessionId, NotificationCompat.CATEGORY_REMINDER)
+            body.take(600), sessionId, NotificationCompat.CATEGORY_REMINDER, requestId)
     }
 
-    fun clearApproval(context: Context, runId: String) {
-        NotificationManagerCompat.from(context).cancel(approvalId(runId))
+    fun postQuestion(context: Context, requestId: String, sessionId: String?, title: String?, question: String?) {
+        post(context, CHANNEL_APPROVALS, questionId(requestId),
+            "Hermes has a question${title?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()}",
+            (question ?: "Hermes is waiting for your answer.").take(600), sessionId, NotificationCompat.CATEGORY_REMINDER, requestId)
+    }
+
+    fun clearQuestion(context: Context, requestId: String) {
+        NotificationManagerCompat.from(context).cancel(questionId(requestId))
+        posted.remove(requestId)
     }
 
     /** Drop alerts for a session the user just opened; they have seen it. */
     fun clearSession(context: Context, sessionId: String) {
         val nm = NotificationManagerCompat.from(context)
-        sessions.filterValues { it == sessionId }.keys.toList().forEach { runId ->
-            nm.cancel(resultId(runId)); nm.cancel(approvalId(runId)); sessions.remove(runId)
-        }
+        nm.cancel(resultId(sessionId))
+        posted.filterValues { it == sessionId }.keys.toList().forEach { rid -> nm.cancel(questionId(rid)); posted.remove(rid) }
     }
 
-    /** runId → sessionId of what is currently posted, so opening a chat can clear its alerts. */
-    private val sessions = java.util.concurrent.ConcurrentHashMap<String, String>()
+    /** requestId → sessionId of questions currently posted, so opening a chat can clear them. */
+    private val posted = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     private fun post(context: Context, channel: String, id: Int, title: String, body: String,
-                     runId: String, sessionId: String?, category: String) {
+                     sessionId: String?, category: String, requestId: String? = null) {
         val nm = NotificationManagerCompat.from(context)
         if (!nm.areNotificationsEnabled()) return
-        if (sessionId != null) sessions[runId] = sessionId
+        if (requestId != null && sessionId != null) posted[requestId] = sessionId
         ensureChannels(context)
         val n = NotificationCompat.Builder(context, channel)
             .setContentTitle(title)
@@ -125,6 +132,6 @@ object Notifier {
         .replace(Regex("\\n{3,}"), "\n\n")
         .trim()
 
-    private fun resultId(runId: String) = 0x10000 + (runId.hashCode() and 0xffff)
-    private fun approvalId(runId: String) = 0x20000 + (runId.hashCode() and 0xffff)
+    private fun resultId(key: String) = 0x10000 + (key.hashCode() and 0xffff)
+    private fun questionId(requestId: String) = 0x20000 + (requestId.hashCode() and 0xffff)
 }
