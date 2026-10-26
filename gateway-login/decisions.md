@@ -16,3 +16,4 @@ Chat-made rules the files cannot show, one line each, newest last.
 - 2026-10-26 22:19 05 verified (suite+APK build); bridge test fix ddcec02 (no more Photos popup from pytest, proven: 1 startfile call before, 0 across the full suite after)
 - 2026-10-26 22:31 review 2.1 FAIL accepted: fix tickets 05-fix-share-okhttp-client, 06-fix-dedupe-enc-drop-handoff (refactor only, nothing folded). Untested UI criteria + live-fixture check -> ticket 07 manual checks (incl. bridge host path unchanged, switching bridge<->gateway, Add host chips, hidden features list, W10-W13 shapes vs real WorkLab). Possible vacuous state check not ticketed.
 - 2026-10-26 22:35 batch 2 PASS; batch 3 = ticket 07 via docs worker with docs-facts.md; CHANGELOG heading 'Unreleased' (version = git tag, user decides)
+- 2026-10-26 22:37 07 docs committed 6de07d6; docs RESULT FAIL = no glossary (CONTEXT.md absent, not created by rule); drift.md lists unchecked terms
