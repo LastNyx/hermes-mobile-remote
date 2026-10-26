@@ -20,3 +20,4 @@ Chat-made rules the files cannot show, one line each, newest last.
 - 2026-10-26 22:43 debug APK (sha256 65f002da...) sent to telegram (owner DM) (first TELEGRAM_ALLOWED_USERS id, user-approved); hermes send printed 'sent'
 - 2026-10-26 22:51 PR opened: nideta231/hermes-mobile-remote#14 from LastNyx:feature/gateway-login. Merged origin/main (4 conflicts resolved: CHANGELOG, AppViewModel, MainActivity, Screens), suites green, .team.json untracked from the PR
 - 2026-10-26 23:08 user: vault is Hermes RPC not bridge-only -> unhidden for gateway hosts (planner quick-lane, suite+APK green). Next: ticket 08 Scheduled (cron) on gateway hosts via /api/cron/jobs
+- 2026-10-26 23:13 08 done; vault unhide + scheduled pushed to PR #14, PR body updated
