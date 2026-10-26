@@ -5,3 +5,5 @@
 - Gateway host activation: data/HostConnection.kt (decideConnection, rootScreen, gatewayAuthFor, buildGateway); VM `enterActiveHost()` is the one place that goes live on the active host; GatewayAuth takes an `onRefreshed` hook to persist tokens.
 - MockWebServer websocket test listeners need `onClosing -> close`, or `server.shutdown()` hangs ("Gave up waiting for queue").
 - Gateway sign-in glue: data/GatewaySignIn.kt (LoopbackListener, GatewayUrl, OkHttpTransport), AppViewModel.signInGateway, PairScreen chips in ui/Screens.kt.
+- Gateway REST: data/GatewayRest.kt (`SessionsSource` implemented by BridgeClient and GatewayRestClient; `hiddenFeatures(kind)`); VM field `source`; UI hides via `LocalHiddenFeatures` (ui/Components.kt).
+- Kotlin KDoc: never write `/api/*` or `/v1/*` in a comment, `/*` opens a nested comment and breaks the file.

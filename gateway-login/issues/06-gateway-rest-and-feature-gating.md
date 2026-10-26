@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: in-progress
+Status: review
 Round: 0
 Blocked by: 01,03,04,05,05b
 Terms: gateway host, HostFeatures gate, /api/* REST
@@ -46,3 +46,13 @@ With a gateway host active, the drawer lists sessions, pin/rename work, profile 
 - Do not contact a real gateway from a test. Fake the transport.
 
 ## Result
+
+Commit 8c13fdd. `./build.sh test` green (GatewayRestTest 7/7, all existing suites pass).
+- Parsers criterion: `sessionsProfilesAndStatusParseTheVerifiedGatewayShapes` + `pinAndRenameSendPatchWithProfile` (fixtures are inline, built from design W10-W13/W1; no recorded samples from ticket 01 exist in the repo).
+- Gate criterion: `gatewayHidesBridgeOnlyFeaturesAndBridgeHidesNone`. Media criterion: `mediaDecodesTheDataUrlAndFallsBackOnRefusals` (403/404/413/415 -> null = placeholder).
+- 401 criterion: `sessionExpiredRefreshesOnceThenRetries...`, `unauthenticatedIsNotARefreshCase`, `refreshRejectedAsksToSignInAgain` (onSignedOut flips the host to the sign-in screen).
+- UI criteria (gateway/bridge): no Compose test infra, so covered by compile only: `LocalHiddenFeatures` hides Scheduled icon (Screens.kt), Vault/approvals/default model/Connection card (SettingsScreen), file cards (ChatScreen), project description field (ProjectDialogs); bridge gets an empty set. Status shows the single "Hermes gateway" row from /api/status. No desktop-handoff control exists in the app, so nothing to hide there.
+- Reused: parseSession/parseProfiles/BridgeException/profileParam, GatewayAuth.refresh, gatewayAuthFor. Added `HttpTransport.send` (default throws) + OkHttpTransport override. Notes added: 2 lines.
+Not checked: running app against a stand-in gateway (planner's Verify), `assembleDebug`, real WorkLab, project/IDEA path on gateway beyond hiding the field.
+
+Planner Verify: SKIP stand-in gateway run needs a device/emulator (none here); PASS part: 8c13fdd, suite green, ./build.sh builds APK; fixtures are from Hermes source (W10-W13), not live-recorded: real WorkLab check in ch
