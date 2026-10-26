@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: review
+Status: done
 Round: 0
 Blocked by: 01,03,04,05,05b
 Terms: gateway host, HostFeatures gate, /api/* REST
@@ -56,3 +56,5 @@ Commit 8c13fdd. `./build.sh test` green (GatewayRestTest 7/7, all existing suite
 Not checked: running app against a stand-in gateway (planner's Verify), `assembleDebug`, real WorkLab, project/IDEA path on gateway beyond hiding the field.
 
 Planner Verify: SKIP stand-in gateway run needs a device/emulator (none here); PASS part: 8c13fdd, suite green, ./build.sh builds APK; fixtures are from Hermes source (W10-W13), not live-recorded: real WorkLab check in ch
+
+Planner Verify: PASS batch 2 review round 2 PASS
