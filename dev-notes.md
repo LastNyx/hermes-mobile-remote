@@ -1,0 +1,2 @@
+- Gateway tests use MockWebServer (`withWebSocketUpgrade`, `setResponseCode(401)`); see GatewayUrlProviderTest.
+- Gateway's onFailure lastError gets overwritten by the runCatching handler with t.message ("Expected HTTP 101..."), so bridge 401 text isn't actually shown (pre-existing).

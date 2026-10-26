@@ -43,3 +43,11 @@ Verify: None here; real socket against WorkLab in ticket 07.
 - Do not contact a real gateway from a test. Fake the transport.
 
 ## Result
+Commit c111be6. `./build.sh test`: all JVM tests pass (158 incl. 5 new in GatewayUrlProviderTest).
+- Criterion 1: bridgeModeConnectsToTheFixedUrl (+ existing BridgeRequestsTest unchanged, green)
+- Criterion 2: gatewayModeAsksTheProviderOnEveryConnect; 3: a401RefreshesOnceThenRetriesAndASecond401IsUnauthorized
+- Criterion 4: aRefreshThatIsUnavailableDoesNotEndInUnauthorized; 5: unauthorizedMessageSaysSignInForGatewayAndPairForBridge
+- Tests were written after the code (same commit); all pass.
+- Reuse: GatewayAuth.wsTicket/refresh via new `GatewayTicketUrl` provider; `SocketUrlProvider`/`FixedUrl` added in Gateway.kt; old `Gateway(http, url)` constructor kept for bridge.
+- Notes added to .scratch/dev-notes.md.
+Not checked: GatewayTicketUrl against a real/faked GatewayAuth (not wired yet; ticket 07 covers a real socket), the ticket-call-401 path in Gateway.nextUrl has no dedicated test, bridge 401 text is overwritten by the existing catch handler (pre-existing).
