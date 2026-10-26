@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: todo
+Status: in-progress
 Round: 1
 Blocked by: 03
 Terms: host kind, GatewayCredentialStore, Profile
