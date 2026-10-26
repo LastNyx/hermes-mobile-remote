@@ -43,3 +43,8 @@ Blocked-by note: (can start immediately; independent of the wire facts)
 - Do not contact a real gateway from a test. Fake the transport.
 
 ## Result
+FAIL: `cd android && ./build.sh test` prints "error: no JDK found" (JAVA_HOME unset, java not on PATH); I cannot set env in a single-command call, so the tests never ran. Nothing committed.
+Uncommitted (left in tree): `data/ProfileStore.kt` (HostKind, Profile.kind, gatewayFile), new `data/GatewayCredentialStore.kt` (TokenCipher, KeystoreTokenCipher), new `GatewayStoreTest.kt` (4 tests, one per first four criteria).
+Backup criterion: `data_extraction_rules.xml` already excludes all `sharedpref` (path "."), and allowBackup=false, so `gateway_<id>` is covered; no change. `assembleDebug` not run.
+Reuse: copied the Keystore AES-GCM scheme from CredentialStore (own alias); FakePrefs there is private so the test has its own MemPrefs.
+Not checked: everything (compile, tests, assembleDebug).
