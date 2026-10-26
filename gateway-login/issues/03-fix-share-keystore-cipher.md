@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: in-progress
+Status: review
 Round: 1
 Blocked by: 03
 Terms: GatewayCredentialStore, CredentialStore
@@ -32,3 +32,5 @@ Refactor ticket, no new tests: existing tests are the check.
 Reuse: reused the existing KeystoreTokenCipher/TokenCipher; nothing else needed.
 Notes added: 1.
 Not checked: real Keystore decrypt of a blob written by an older install (no device/emulator run).
+
+Planner Verify: PASS 6af1b15; suite green; CredentialStore alias hermes_remote_token_key unchanged, GCM 128/iv12 transform identical to removed code (read diff); real Keystore not testable on JVM (device check in manual l
