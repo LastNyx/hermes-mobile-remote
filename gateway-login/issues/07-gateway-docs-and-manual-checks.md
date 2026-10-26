@@ -4,7 +4,7 @@ Lane: full
 Branch: feature/gateway-login
 Status: todo
 Round: 0
-Blocked by: 04,05,06
+Blocked by: 04,05,05b,06
 Terms: gateway host, manual checks
 Seam: None (docs).
 Test command: None (docs/research only, planner-run)

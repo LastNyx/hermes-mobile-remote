@@ -4,7 +4,7 @@ Lane: full
 Branch: feature/gateway-login
 Status: todo
 Round: 0
-Blocked by: 01,03,04,05
+Blocked by: 01,03,04,05,05b
 Terms: gateway host, HostFeatures gate, /api/* REST
 Seam: `GatewayRestClient` with an injected transport, and a `HostFeatures` gate.
 Test command: cd android && ./build.sh test

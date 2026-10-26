@@ -12,16 +12,20 @@ Verify: Planner installs the debug APK on the phone and signs in to WorkLab (man
 
 ## What to build
 
-A person can open Add host, choose "Sign in to a gateway", type the gateway URL, and get taken to the gateway's own login in a Chrome Custom Tab; after they finish, the app has tokens stored and a new gateway host in the list. The loopback listener is one-shot on `127.0.0.1` with a random port, accepts only the matching `state`, answers the browser with a small "you can return to the app" page, and stops. Cancelling, a timeout (600 s overall) or a wrong state ends cleanly with a message and no half-saved host. Add host still offers the existing QR pairing unchanged.
+A person can open Add host, choose "Sign in to a gateway", type the gateway URL, and get taken to the gateway's own login in a Chrome Custom Tab; after they finish, the app has tokens stored (`GatewayCredentialStore`) and a new `HostKind.GATEWAY` entry in the host list (`ProfileStore`). Making that host the live, connected one is ticket 05b, not this ticket: here the host only has to appear in the list and keep its tokens. The loopback listener is one-shot on `127.0.0.1` with a random port, accepts only the matching `state`, answers the browser with a small "you can return to the app" page, and stops. Cancelling, a timeout (600 s overall) or a wrong state ends cleanly with a message and no half-saved host. Add host still offers the existing QR pairing unchanged.
 
 ## Acceptance criteria
 
 - [ ] UI: Add host screen shows two choices, *Pair a bridge* (existing flow, unchanged) and *Sign in to a gateway*
 - [ ] UI: the gateway form validates the URL: `https` anywhere, plain `http` only for tailnet/LAN hosts (reuse the `Tailnet` rules); anything else is refused with a reason
-- [ ] UI: after success the new host is active and shows its name; after cancel or failure the host list is unchanged
+- [ ] UI: after success the new gateway host appears in the host list with a name taken from the URL's host; after cancel or failure the host list is unchanged and no tokens are stored
 - [ ] The loopback listener is a pure class with a JVM test: right state returns the code, wrong state does not, it closes after one request and after timeout
 - [ ] Manifest: Custom Tabs dependency and any needed `queries` entry are present (planner adds the gradle dependency first); `assembleDebug` passes
 - [ ] An API without its screen fails this ticket.
+
+- The `HttpTransport` interface in `data/GatewayAuth.kt` needs a real implementation over the app's existing OkHttp client; write it here (`OkHttpTransport`, tiny, not unit-tested beyond a MockWebServer round trip of one POST). `GatewayAuth.logout()` hits `/auth/logout` with a Bearer; whether the gateway honours that is unknown (design W15), so treat it as best effort and make sure local tokens are wiped even when it fails (add a JVM test for that).
+- Tokens come back from `GatewayAuth.signIn(code, verifier, returnedState, expectedState)`; the sign-in URL from `authorizeUrl(challenge, redirectUri, state)`; the verifier/challenge from `Pkce`. Do not reimplement.
+- The Custom Tab must keep its cookies through the login (the gateway keeps the login state in a PKCE cookie): use a Custom Tab (`androidx.browser`, already a dependency), not a WebView.
 
 ## Facts that hold for every ticket
 
