@@ -34,6 +34,8 @@ Verify: None here; real socket against WorkLab in ticket 07.
 - Protected (planner edits only): `*.gradle.kts`, `gradle/`, `gradle.properties`, `local.properties`, `.github/`, `.team.json`.
 - Wire protocol: `docs/GATEWAY-DESIGN.md` section "Verified wire facts" (W1-W16) is the source of truth; entries marked unknown must not be relied on. Do not invent payloads.
 - No Co-Authored-By trailer on any commit.
+- Landed by tickets 02/03 (use, do not redo): `data/GatewayAuth.kt` has `GatewayAuth(baseUrl, http: HttpTransport, tokens)` with `suspend wsTicket(): String` (fresh each call; throws `GatewayAuthException` with `error` = `SIGNED_OUT` on 401 `session_expired`, `RETRY_LATER` on 503, `FAILED` otherwise), `suspend refresh(): GatewayTokens` (coalesced; same exception kinds), `tokens`, `logout()`. `ProfileStore` has `Profile.kind` (`HostKind`); `GatewayCredentialStore` holds tokens. A ticket call that throws `SIGNED_OUT` means: call `refresh()` once, then ticket again; `refresh()` throwing `SIGNED_OUT` means `UNAUTHORIZED`.
+- `./build.sh test` needs JDK 17 on PATH; it is now exported in `~/.bashrc`. If it still prints "no JDK found", FAIL and say so.
 
 ## Constraints
 
