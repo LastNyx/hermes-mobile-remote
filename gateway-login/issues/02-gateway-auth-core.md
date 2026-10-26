@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: review
+Status: done
 Round: 0
 Blocked by: 01
 Terms: gateway, PKCE, native auth, ws-ticket, coalesced refresh
@@ -50,3 +50,5 @@ Left uncommitted: `data/GatewayAuth.kt` and `GatewayAuthTest.kt` (6 tests, one p
 Not checked: everything. The code has never been compiled and the tests have never run.
 
 Planner Verify: PASS full android suite green, GatewayAuthTest 6 tests 0 failures; code committed by planner after env-only dev FAIL
+
+Planner Verify: PASS batch 1 review round 2 PASS (review-1-2.md)
