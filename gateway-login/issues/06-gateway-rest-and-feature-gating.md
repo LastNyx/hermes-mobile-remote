@@ -34,7 +34,7 @@ With a gateway host active, the drawer lists sessions, pin/rename work, profile 
 - Tests: JVM unit tests only; no emulator. Android-only glue (Custom Tab, Service, manifest) is acceptance criteria too, checked by `assembleDebug`.
 - Test command: `cd android && ./build.sh test` (JDK 17 + Android SDK; on this PC `C:/home/tools/jdk-17`, `C:/home/tools/android-sdk`, pass `C:/` paths).
 - Protected (planner edits only): `*.gradle.kts`, `gradle/`, `gradle.properties`, `local.properties`, `.github/`, `.team.json`.
-- Wire protocol is in the design doc and is UNVERIFIED until ticket 01 records the real responses in it. Do not invent payloads.
+- Wire protocol: `docs/GATEWAY-DESIGN.md` section "Verified wire facts" (W1-W16) is the source of truth; entries marked unknown must not be relied on. Do not invent payloads.
 - No Co-Authored-By trailer on any commit.
 
 ## Constraints
