@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: review
+Status: done
 Round: 1
 Blocked by: 06
 Terms: HostFeature gate, gateway host
@@ -31,3 +31,5 @@ Commit: 02c1914. `cd android && ./build.sh test` passed (no output, exit 0). Ref
 Not checked: error-mapping dedupe; device run.
 
 Planner Verify: PASS 02c1914; suite green; one internal enc() used by both clients, DESKTOP_HANDOFF removed (error-mapping dedupe not done; optional per ticket)
+
+Planner Verify: PASS batch 2 review round 2 PASS
