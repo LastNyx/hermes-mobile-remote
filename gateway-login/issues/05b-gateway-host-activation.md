@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: review
+Status: done
 Round: 0
 Blocked by: 04,05
 Terms: gateway host, HostKind, GatewayTicketUrl, LiveLink, Pairing
@@ -60,3 +60,5 @@ Notes added: 2 lines in .scratch/dev-notes.md.
 Not checked: `assembleDebug`, an emulator or real gateway run, sign-in-again flow on a device.
 
 Planner Verify: PASS 9befcfb; suite green (170) + ./build.sh builds APK; UI/AC4-5 covered by pure rootScreen test + compile only, device run pending (real WorkLab needs the user's password, never typed by me)
+
+Planner Verify: PASS batch 2 review round 2 PASS
