@@ -8,3 +8,4 @@
 - Gateway REST: data/GatewayRest.kt (`SessionsSource` implemented by BridgeClient and GatewayRestClient; `hiddenFeatures(kind)`); VM field `source`; UI hides via `LocalHiddenFeatures` (ui/Components.kt).
 - Kotlin KDoc: never write `/api/*` or `/v1/*` in a comment, `/*` opens a nested comment and breaks the file.
 - The app's one OkHttpClient is `SharedHttp.client` (data/SharedHttp.kt); BridgeClient, OkHttpTransport and LiveLink.connectGateway default to it. Use it, never `OkHttpClient()`.
+- Shared path-segment encoder is top-level `enc()` in data/GatewayRest.kt (used by BridgeClient and GatewayRestClient).
