@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: in-progress
+Status: review
 Round: 0
 Blocked by: 01
 Terms: gateway, PKCE, native auth, ws-ticket, coalesced refresh
@@ -48,3 +48,5 @@ Blocked-by note: (needs the verified request/response shapes)
 FAIL: `cd android && ./build.sh test` stops with "error: no JDK found. Install JDK 17+ and set JAVA_HOME or put java on PATH." (run twice). I may only run that exact command, so I could not set JAVA_HOME. The JDK is at C:/home/tools/jdk-17 per the ticket.
 Left uncommitted: `data/GatewayAuth.kt` and `GatewayAuthTest.kt` (6 tests, one per criterion). Neither has been compiled or run.
 Not checked: everything. The code has never been compiled and the tests have never run.
+
+Planner Verify: PASS full android suite green, GatewayAuthTest 6 tests 0 failures; code committed by planner after env-only dev FAIL
