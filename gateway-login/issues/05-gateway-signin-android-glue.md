@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: review
+Status: done
 Round: 0
 Blocked by: 02,03
 Terms: gateway host, loopback listener, Custom Tab, Add host
@@ -57,3 +57,5 @@ Notes added: 2 lines in .scratch/dev-notes.md.
 Not checked: assembleDebug, UI behaviour on a device/Custom Tab, real gateway sign-in, UI criteria on the component.
 
 Planner Verify: PASS 56f6177; suite green + ./build.sh assembleDebug builds the APK; GatewaySignInTest 6; gap: UI (Add host chips, form, Custom Tab) compiled only, not run on device; signIn passes the same state twice (li
+
+Planner Verify: PASS batch 2 review round 2 PASS
