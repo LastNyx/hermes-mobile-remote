@@ -7,3 +7,4 @@
 - Gateway sign-in glue: data/GatewaySignIn.kt (LoopbackListener, GatewayUrl, OkHttpTransport), AppViewModel.signInGateway, PairScreen chips in ui/Screens.kt.
 - Gateway REST: data/GatewayRest.kt (`SessionsSource` implemented by BridgeClient and GatewayRestClient; `hiddenFeatures(kind)`); VM field `source`; UI hides via `LocalHiddenFeatures` (ui/Components.kt).
 - Kotlin KDoc: never write `/api/*` or `/v1/*` in a comment, `/*` opens a nested comment and breaks the file.
+- The app's one OkHttpClient is `SharedHttp.client` (data/SharedHttp.kt); BridgeClient, OkHttpTransport and LiveLink.connectGateway default to it. Use it, never `OkHttpClient()`.

@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: in-progress
+Status: review
 Round: 1
 Blocked by: 05
 Terms: gateway host, OkHttpTransport, LiveLink
@@ -18,3 +18,13 @@ Ticket 05 asked for the transport "over the app's existing OkHttp client". Today
 
 - [ ] No `OkHttpClient()` is constructed in the gateway activation, sign-in or `LiveLink.connectGateway` paths; they take the shared client.
 - [ ] Existing tests stay green.
+
+## Result
+Commit 5d13c81. `./build.sh test` exited clean (silent success). Refactor only, so existing tests are the check; no new test.
+- Criterion 1: no shared client existed (BridgeClient defaulted to `OkHttpClient()`), so added `SharedHttp.client` (data/SharedHttp.kt). `OkHttpTransport` and `BridgeClient` default to it, `LiveLink.connectGateway` uses it. AppViewModel's `OkHttpTransport()` calls (activation, sign-in) now take it through the default.
+- Criterion 2: existing suite green.
+Reuse: nothing shared existed to reuse; BridgeClient derives via newBuilder so pool and dispatcher are now shared.
+Notes added: 1.
+Not checked: tests that still build their own `OkHttpClient()` (test code, left alone); on-device behaviour.
+
+Planner Verify: PASS 5d13c81; suite green; SharedHttp.client replaces fresh OkHttpClient() in transport/LiveLink/BridgeClient default (BridgeClient derives per-pin clients from baseClient, pinning unaffected per read)
