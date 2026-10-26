@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: review
+Status: done
 Round: 0
 Blocked by: None
 Terms: host kind (bridge|gateway), Profile, GatewayCredentialStore
@@ -50,3 +50,5 @@ Reuse: copied the Keystore AES-GCM scheme from CredentialStore (own alias); Fake
 Not checked: everything (compile, tests, assembleDebug).
 
 Planner Verify: PASS full android suite green, GatewayStoreTest 4 tests 0 failures, ./build.sh assembleDebug builds APK; committed by planner after env-only dev FAIL
+
+Planner Verify: PASS batch 1 review round 2 PASS (review-1-2.md)
