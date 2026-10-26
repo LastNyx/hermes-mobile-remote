@@ -17,6 +17,7 @@ Ticket 03 says "Removing a host removes its store". Today removing a host clears
 ## Acceptance criteria
 
 - [ ] Removing a gateway host leaves no `gateway_<id>` data
+- [ ] Forgetting the ACTIVE host (`unpair()`) clears the same data as `forgetPc` (grep both paths; one shared step)
 - [ ] Removing a bridge host behaves as before
 - [ ] JVM test covers the clearing
 
