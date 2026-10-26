@@ -1,0 +1,2 @@
+# per-run files: result JSON, progress logs, prompts, the worker lock (runs.log is kept)
+runs/
