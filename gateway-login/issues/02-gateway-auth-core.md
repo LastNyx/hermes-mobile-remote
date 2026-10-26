@@ -44,3 +44,7 @@ Blocked-by note: (needs the verified request/response shapes)
 - Do not contact a real gateway from a test. Fake the transport.
 
 ## Result
+
+FAIL: `cd android && ./build.sh test` stops with "error: no JDK found. Install JDK 17+ and set JAVA_HOME or put java on PATH." (run twice). I may only run that exact command, so I could not set JAVA_HOME. The JDK is at C:/home/tools/jdk-17 per the ticket.
+Left uncommitted: `data/GatewayAuth.kt` and `GatewayAuthTest.kt` (6 tests, one per criterion). Neither has been compiled or run.
+Not checked: everything. The code has never been compiled and the tests have never run.
