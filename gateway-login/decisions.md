@@ -10,3 +10,4 @@ Chat-made rules the files cannot show, one line each, newest last.
 - 2026-10-26 22:03 04: planner added 2 tests for ticket-call SIGNED_OUT path (test-only, plain commit); GatewayTicketUrl still unwired until 05
 - 2026-10-26 22:06 review 1.1 FAIL accepted: 2 fix tickets (remove-host clears gateway store incl. unpair; share keystore cipher). Declined: logout test (W15 unknown, note for 05), backoff dedupe (Possible, no behaviour). .team.json android cmd now 'bash build.sh test'; baseline recorded (bridge 2 Windows env failures)
 - 2026-10-26 22:10 QUEUED after chain (not this feature): Windows bridge laggy (see skill windows-subprocess-cost; read audit log latency) and pair QR should never open Photos on Windows since tray already shows it -> check cli.py _show_qr/--qr-png path. Own branch from windows-support.
+- 2026-10-26 22:12 batch 1 review PASS round 2; HEAD 6af1b15 = base for batch 2
