@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: review
+Status: done
 Round: 1
 Blocked by: 03
 Terms: host kind, GatewayCredentialStore, Profile
@@ -35,3 +35,5 @@ Notes added: none.
 Not checked: the red run before the code (the new function did not exist, so it would not compile); the ViewModel wiring itself on a device.
 
 Planner Verify: PASS 1cbf750; full suite green, GatewayStoreTest 5; old clear calls were prefs.clear() on same files, behaviour equal; unpair+forgetPc share clearHostData
+
+Planner Verify: PASS batch 1 review round 2 PASS (review-1-2.md)
