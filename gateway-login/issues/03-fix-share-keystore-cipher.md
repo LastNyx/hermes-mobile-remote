@@ -22,3 +22,13 @@ Verify: None.
 ## Constraints
 
 - Do not touch `bridge/`, `install.*`, `tray.*`.
+
+## Result
+
+Commit 6af1b15. `cd android && ./build.sh test` exited with no output (no failures shown).
+Refactor ticket, no new tests: existing tests are the check.
+- AC1: `KeystoreTokenCipher(alias)` is the single AES-GCM implementation; `CredentialStore` now uses it (alias "hermes_remote_token_key"), gateway passes "hermes_remote_gateway_key".
+- AC2: CredentialStore blob format (iv + ciphertext, base64) and alias unchanged; existing tests green. The Keystore is now opened lazily rather than in the constructor.
+Reuse: reused the existing KeystoreTokenCipher/TokenCipher; nothing else needed.
+Notes added: 1.
+Not checked: real Keystore decrypt of a blob written by an older install (no device/emulator run).
