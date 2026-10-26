@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: in-progress
+Status: review
 Round: 0
 Blocked by: 04,05
 Terms: gateway host, HostKind, GatewayTicketUrl, LiveLink, Pairing
@@ -58,3 +58,5 @@ Commit: 9befcfb. `./build.sh test` green (170 tests, 0 failed; the 2 skipped are
 Reuse: found `LiveLink.connect`, `ProfileStore.active()`, `GatewayTicketUrl`, `OkHttpTransport`, `PairScreen` styling; nothing existed for host-kind decisions.
 Notes added: 2 lines in .scratch/dev-notes.md.
 Not checked: `assembleDebug`, an emulator or real gateway run, sign-in-again flow on a device.
+
+Planner Verify: PASS 9befcfb; suite green (170) + ./build.sh builds APK; UI/AC4-5 covered by pure rootScreen test + compile only, device run pending (real WorkLab needs the user's password, never typed by me)
