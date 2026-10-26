@@ -13,3 +13,4 @@ Chat-made rules the files cannot show, one line each, newest last.
 - 2026-10-26 22:12 batch 1 review PASS round 2; HEAD 6af1b15 = base for batch 2
 - 2026-10-26 22:15 user: split 05; new ticket 05b (host activation: gateway host becomes live host, socket via GatewayTicketUrl, OkHttpTransport built in 05). Batch 2 = 05,05b,06; 06 and 07 blocked by 05b. Planner added androidx.browser dep.
 - 2026-10-26 22:15 user: fix first: bridge pytest opens pairing-qr.png in Photos (test_terminal_qr_survives... uses the real Windows host). Planner test-only fix prepared (scratch qrfix.py); applied right after the running dev (05) exits so the tree stays clean for it. Rest of the Windows bridge work stays queued.
+- 2026-10-26 22:19 05 verified (suite+APK build); bridge test fix ddcec02 (no more Photos popup from pytest, proven: 1 startfile call before, 0 across the full suite after)
