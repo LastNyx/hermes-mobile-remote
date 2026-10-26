@@ -46,3 +46,12 @@ A person can open Add host, choose "Sign in to a gateway", type the gateway URL,
 - Do not contact a real gateway from a test. Fake the transport.
 
 ## Result
+Commit 56f6177. `./build.sh test`: all JVM tests pass (GatewaySignInTest 6/6, 0 failures anywhere); main code incl. Compose UI compiled.
+- Loopback listener criterion: rightStateReturns..., wrongState..., timeoutEndsTheWait (GatewaySignInTest).
+- URL validation criterion: httpsAnywhereAndPlainHttpOnlyOnTailnetOrLan (GatewayUrl, reuses Tailnet.isAllowedHost).
+- OkHttpTransport MockWebServer round trip; logoutWipesLocalTokensEvenWhenTheServerFails.
+- UI criteria (two choices chips, form, host list after success, unchanged on cancel/failure): no UI test infra, so only compiled, not tested on the component. Host list: refreshPcs now lists GATEWAY hosts; switchPc ignores them (05b).
+- Manifest: `queries` entry for CustomTabsService added; androidx.browser dependency was already present. Cancel: "Cancel sign-in" button closes the listener.
+- Reused: Pkce, GatewayAuth, GatewayCredentialStore, ProfileStore.add, Tailnet, describe(); found nothing for a loopback server or OkHttp transport.
+Notes added: 2 lines in .scratch/dev-notes.md.
+Not checked: assembleDebug, UI behaviour on a device/Custom Tab, real gateway sign-in, UI criteria on the component.

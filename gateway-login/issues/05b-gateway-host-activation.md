@@ -41,6 +41,7 @@ Today the ViewModel only knows bridges: `pairing: Pairing?` decides whether the 
 - `Gateway.url` is only an identity string used by `LiveLink` to decide reuse; for a gateway host pass its base URL, not a ticket URL (a ticket URL changes on every connect and would defeat reuse).
 - A composition crash passes every unit test: the root `AnimatedContent` in `App()` switches on a Boolean; keep it a pure function of state and check `assembleDebug` with `./build.sh` (not only `test`).
 - Do not put new gateway logic in `AppViewModel` when a small testable class can hold it; the ViewModel is hard to test on the JVM.
+- Landed by ticket 05 (56f6177): `data/GatewaySignIn.kt` (`GatewayUrl.validate/hostName`, `LoopbackListener`, `OkHttpTransport()`); `AppViewModel.signInGateway` adds the host via `profiles.add(name, HostKind.GATEWAY)` and saves `GatewayCredentialStore(app, host.id).save(GatewayCredentials(baseUrl, accessToken, refreshToken, expiresAt))`; `load()` returns that or null. `refreshPcs` already lists gateway hosts; `switchPc`/`activate` currently RETURN EARLY for a gateway host (`// going live on a gateway is ticket 05b`): remove that early return and implement the activation.
 
 ## Constraints
 
