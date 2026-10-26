@@ -36,6 +36,9 @@ With a gateway host active, the drawer lists sessions, pin/rename work, profile 
 - Protected (planner edits only): `*.gradle.kts`, `gradle/`, `gradle.properties`, `local.properties`, `.github/`, `.team.json`.
 - Wire protocol: `docs/GATEWAY-DESIGN.md` section "Verified wire facts" (W1-W16) is the source of truth; entries marked unknown must not be relied on. Do not invent payloads.
 - No Co-Authored-By trailer on any commit.
+- Landed by 05/05b (9befcfb): for a gateway host `AppViewModel.client` (a `BridgeClient?`) is NULL and REST screens do `client ?: return`, so session list, profiles and status are simply empty today. `data/HostConnection.kt` has `decideConnection`/`rootScreen`; `gatewayAuthFor(...)`/`GatewayAuth(onRefreshed=...)` rebuilds tokens and writes rotated ones back to `GatewayCredentialStore`; `GatewayCredentials(baseUrl, accessToken, refreshToken, expiresAt, provider)`. `HttpTransport` (data/GatewayAuth.kt) only has `post`; add GET/PATCH to it (a new method with a default, or a second interface) without breaking `OkHttpTransport` or the fakes in existing tests.
+- Wire shapes: design doc W10-W13 (sessions list is `{sessions,total,limit,offset,storage}` with `pinned`/`archived` booleans; PATCH body `{title|pinned|archived, profile?}`; `/api/profiles` -> `{profiles:[{name,display_name,description,model,provider,is_default}]}`; `/api/media?path=` -> `{data_url}`). A bearer 401 with `error: "session_expired"` -> one `GatewayAuth.refresh()` then retry; anything else is a plain failure.
+- Where the existing UI reads the bridge: `AppViewModel` functions that use `client` (`refreshSessions`, `refreshProfiles`, pin/rename, status). Route them through one small seam (`SessionsSource` or similar) with a bridge implementation (today's `BridgeClient` calls, unchanged) and a gateway implementation (`GatewayRestClient`), chosen by the active host kind; do not scatter `if (kind == GATEWAY)` through the ViewModel.
 
 ## Constraints
 

@@ -49,3 +49,12 @@ Today the ViewModel only knows bridges: `pairing: Pairing?` decides whether the 
 - Do not contact a real gateway from a test. Fake the transport.
 
 ## Result
+Commit: 9befcfb. `./build.sh test` green (170 tests, 0 failed; the 2 skipped are pre-existing).
+- AC1 decision: `decideConnection` test (bridge / gateway with tokens / without).
+- AC2 write-back: `refreshedTokensAreWrittenBackToTheStore` (MemPrefs + ReverseCipher; new `GatewayAuth.onRefreshed` hook, `gatewayAuthFor`). Also added `provider` to `GatewayCredentials`, since a refresh must send it and ticket 05 dropped it.
+- AC3 socket: `gatewayHostConnectsWithATicketUrl` (MockWebServer sees `/api/ws?ticket=tk9`; `Gateway.url` is the base URL). Bridge path is the old `client.gateway()`, untouched, so no new test.
+- AC4/AC5 UI: no Compose test infra, so covered by the pure `rootScreen` test (gateway with tokens -> APP, without -> SIGN_IN) plus compile of `SignInAgainScreen`/`App()`. Switching calls `teardown()` (closes `LiveLink`) before `enterActiveHost()`, so there is one socket; not run on a device.
+- AC6: all existing tests green. AC7: REST screens use `client ?: return`, and the client is null for a gateway host, so no `/v1/*` call.
+Reuse: found `LiveLink.connect`, `ProfileStore.active()`, `GatewayTicketUrl`, `OkHttpTransport`, `PairScreen` styling; nothing existed for host-kind decisions.
+Notes added: 2 lines in .scratch/dev-notes.md.
+Not checked: `assembleDebug`, an emulator or real gateway run, sign-in-again flow on a device.

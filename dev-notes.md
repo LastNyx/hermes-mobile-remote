@@ -2,4 +2,6 @@
 - Gateway's onFailure lastError gets overwritten by the runCatching handler with t.message ("Expected HTTP 101..."), so bridge 401 text isn't actually shown (pre-existing).
 - `KeystoreTokenCipher(alias)` (in GatewayCredentialStore.kt) is the one Keystore AES-GCM scheme; CredentialStore uses it with alias "hermes_remote_token_key".
 - `./build.sh test` prints nothing on success; check android/app/build/test-results/testDebugUnitTest/*.xml for counts. No Compose/UI test infra: screens are covered by compile only.
+- Gateway host activation: data/HostConnection.kt (decideConnection, rootScreen, gatewayAuthFor, buildGateway); VM `enterActiveHost()` is the one place that goes live on the active host; GatewayAuth takes an `onRefreshed` hook to persist tokens.
+- MockWebServer websocket test listeners need `onClosing -> close`, or `server.shutdown()` hangs ("Gave up waiting for queue").
 - Gateway sign-in glue: data/GatewaySignIn.kt (LoopbackListener, GatewayUrl, OkHttpTransport), AppViewModel.signInGateway, PairScreen chips in ui/Screens.kt.
