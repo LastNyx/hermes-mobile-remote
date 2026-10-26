@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: review
+Status: done
 Round: 0
 Blocked by: 02,03
 Terms: Gateway socket, URL provider, ws-ticket, UNAUTHORIZED
@@ -53,3 +53,5 @@ Commit c111be6. `./build.sh test`: all JVM tests pass (158 incl. 5 new in Gatewa
 Not checked: GatewayTicketUrl against a real/faked GatewayAuth (not wired yet; ticket 07 covers a real socket), the ticket-call-401 path in Gateway.nextUrl has no dedicated test, bridge 401 text is overwritten by the existing catch handler (pre-existing).
 
 Planner Verify: PASS c111be6; full suite green, GatewayUrlProviderTest 7/7 (5 dev + 2 planner for ticket-call 401 path); gap: bridge 401 text pre-existing; GatewayTicketUrl not yet wired (05)
+
+Planner Verify: PASS batch 1 review round 2 PASS (review-1-2.md)
