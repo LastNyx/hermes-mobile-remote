@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: in-progress
+Status: review
 Round: 0
 Blocked by: None
 Terms: gateway, native auth, ws-ticket, wire facts
@@ -42,3 +42,5 @@ Blocked-by note: (can start immediately)
 - Do not contact a real gateway from a test. Fake the transport.
 
 ## Result
+
+Planner Verify: PASS Verified wire facts W1-W16 added to docs/GATEWAY-DESIGN.md (7f8efe9); live curl vs WorkLab 0.22.2 for status/providers/authorize/token/refresh/401s, rest from Hermes src v0.22.5; W14-W16 unknown; no c
