@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: in-progress
+Status: review
 Round: 0
 Blocked by: 02,03
 Terms: gateway host, loopback listener, Custom Tab, Add host
@@ -55,3 +55,5 @@ Commit 56f6177. `./build.sh test`: all JVM tests pass (GatewaySignInTest 6/6, 0 
 - Reused: Pkce, GatewayAuth, GatewayCredentialStore, ProfileStore.add, Tailnet, describe(); found nothing for a loopback server or OkHttp transport.
 Notes added: 2 lines in .scratch/dev-notes.md.
 Not checked: assembleDebug, UI behaviour on a device/Custom Tab, real gateway sign-in, UI criteria on the component.
+
+Planner Verify: PASS 56f6177; suite green + ./build.sh assembleDebug builds the APK; GatewaySignInTest 6; gap: UI (Add host chips, form, Custom Tab) compiled only, not run on device; signIn passes the same state twice (li
