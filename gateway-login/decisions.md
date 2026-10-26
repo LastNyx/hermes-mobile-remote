@@ -18,3 +18,4 @@ Chat-made rules the files cannot show, one line each, newest last.
 - 2026-10-26 22:35 batch 2 PASS; batch 3 = ticket 07 via docs worker with docs-facts.md; CHANGELOG heading 'Unreleased' (version = git tag, user decides)
 - 2026-10-26 22:37 07 docs committed 6de07d6; docs RESULT FAIL = no glossary (CONTEXT.md absent, not created by rule); drift.md lists unchecked terms
 - 2026-10-26 22:43 debug APK (sha256 65f002da...) sent to telegram (owner DM) (first TELEGRAM_ALLOWED_USERS id, user-approved); hermes send printed 'sent'
+- 2026-10-26 22:51 PR opened: nideta231/hermes-mobile-remote#14 from LastNyx:feature/gateway-login. Merged origin/main (4 conflicts resolved: CHANGELOG, AppViewModel, MainActivity, Screens), suites green, .team.json untracked from the PR
