@@ -2,7 +2,7 @@
 
 Lane: quick
 Branch: feature/gateway-login
-Status: in-progress
+Status: done
 Round: 0
 Blocked by: None
 Terms: gateway host, HostFeature, Scheduled page, cron job
@@ -52,3 +52,12 @@ The Scheduled page (cron jobs of the Hermes profile in use: list, recent runs, p
 - Do not contact a real gateway from a test. Fake the transport.
 
 ## Result
+
+Commit: 83990cf
+Tests: `./build.sh test` passes silently; GatewayRestTest.xml shows tests=9 failures=0 (whole suite green).
+Coverage: criterion 1+2 -> `cronCallsUseTheGatewayRoutesAndParseBothReplyShapes`; criterion 3 -> `cronCallRefreshesOnceOnSessionExpired`; criterion 6 gate -> updated `gatewayHidesBridgeOnlyFeaturesAndBridgeHidesNone`. Criteria 4, 5 and the UI line (drawer button shown for every host, no `HostFeature.SCHEDULED`) are compile-checked only; CronJobs has no existing unit tests, so no fake `CronSource` test was added.
+Reused: `call`/`raw` refresh path, `enc()`, `parseCronJob(s)`/`parseCronRuns`, `DEFAULT_HERMES_PROFILE`. Found nothing existing for the "always send a profile" rule (`profileParam` drops default), so added `cronProfile()`.
+Notes added: 1 line in .scratch/dev-notes.md.
+Not checked: real gateway list/create/pause/resume/run-now on WorkLab; the bare-array wrapping on run replies was only tested with a faked transport.
+
+Planner Verify: PASS 83990cf; suite green + ./build.sh builds APK; GatewayRestTest 9; criteria 4,5, UI compile-only; real WorkLab cron check in manual-checks

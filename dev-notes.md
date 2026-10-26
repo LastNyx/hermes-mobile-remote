@@ -9,3 +9,4 @@
 - Kotlin KDoc: never write `/api/*` or `/v1/*` in a comment, `/*` opens a nested comment and breaks the file.
 - The app's one OkHttpClient is `SharedHttp.client` (data/SharedHttp.kt); BridgeClient, OkHttpTransport and LiveLink.connectGateway default to it. Use it, never `OkHttpClient()`.
 - Shared path-segment encoder is top-level `enc()` in data/GatewayRest.kt (used by BridgeClient and GatewayRestClient).
+- `CronSource` (data/GatewayRest.kt) is implemented by BridgeClient and GatewayRestClient; VM `source as? CronSource` feeds CronJobs. `profileParam()` returns null for default, so gateway cron uses its own `cronProfile()` that always sends a name.
