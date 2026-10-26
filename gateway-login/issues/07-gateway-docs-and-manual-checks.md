@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: in-progress
+Status: done
 Round: 0
 Blocked by: 04,05,05b,06
 Terms: gateway host, manual checks
@@ -40,3 +40,5 @@ User-facing docs say how to connect a phone straight to a gated gateway, what is
 - Do not contact a real gateway from a test. Fake the transport.
 
 ## Result
+
+Planner Verify: PASS docs worker 6de07d6 (README, CHANGELOG Unreleased, FEATURES, ARCHITECTURE, SECURITY, design status, docs/gateway-manual-checks.md, 20 unticked items); RESULT FAIL was only 'no glossary found' so drift
