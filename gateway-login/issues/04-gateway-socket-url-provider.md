@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: todo
+Status: in-progress
 Round: 0
 Blocked by: 02,03
 Terms: Gateway socket, URL provider, ws-ticket, UNAUTHORIZED
