@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: in-progress
+Status: review
 Round: 0
 Blocked by: None
 Terms: host kind (bridge|gateway), Profile, GatewayCredentialStore
@@ -48,3 +48,5 @@ Uncommitted (left in tree): `data/ProfileStore.kt` (HostKind, Profile.kind, gate
 Backup criterion: `data_extraction_rules.xml` already excludes all `sharedpref` (path "."), and allowBackup=false, so `gateway_<id>` is covered; no change. `assembleDebug` not run.
 Reuse: copied the Keystore AES-GCM scheme from CredentialStore (own alias); FakePrefs there is private so the test has its own MemPrefs.
 Not checked: everything (compile, tests, assembleDebug).
+
+Planner Verify: PASS full android suite green, GatewayStoreTest 4 tests 0 failures, ./build.sh assembleDebug builds APK; committed by planner after env-only dev FAIL
