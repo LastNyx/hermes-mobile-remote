@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: review
+Status: done
 Round: 1
 Blocked by: 05
 Terms: gateway host, OkHttpTransport, LiveLink
@@ -28,3 +28,5 @@ Notes added: 1.
 Not checked: tests that still build their own `OkHttpClient()` (test code, left alone); on-device behaviour.
 
 Planner Verify: PASS 5d13c81; suite green; SharedHttp.client replaces fresh OkHttpClient() in transport/LiveLink/BridgeClient default (BridgeClient derives per-pin clients from baseClient, pinning unaffected per read)
+
+Planner Verify: PASS batch 2 review round 2 PASS
