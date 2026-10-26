@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: review
+Status: done
 Round: 1
 Blocked by: 03
 Terms: GatewayCredentialStore, CredentialStore
@@ -34,3 +34,5 @@ Notes added: 1.
 Not checked: real Keystore decrypt of a blob written by an older install (no device/emulator run).
 
 Planner Verify: PASS 6af1b15; suite green; CredentialStore alias hermes_remote_token_key unchanged, GCM 128/iv12 transform identical to removed code (read diff); real Keystore not testable on JVM (device check in manual l
+
+Planner Verify: PASS batch 1 review round 2 PASS (review-1-2.md)
