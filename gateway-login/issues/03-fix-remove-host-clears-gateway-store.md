@@ -2,7 +2,7 @@
 
 Lane: full
 Branch: feature/gateway-login
-Status: in-progress
+Status: review
 Round: 1
 Blocked by: 03
 Terms: host kind, GatewayCredentialStore, Profile
@@ -24,3 +24,14 @@ Ticket 03 says "Removing a host removes its store". Today removing a host clears
 ## Constraints
 
 - Do not touch `bridge/`, `install.*`, `tray.*`.
+
+## Result
+
+Commit 1cbf750. `./build.sh test` printed nothing; GatewayStoreTest report: 5 tests, 0 failures.
+- Criteria 1, 3, 4: `removingAHostClearsItsPairingDraftsAndGatewayStore` (gateway_<id>, pairing, drafts cleared; other host untouched; bridge id with no gateway data is harmless).
+- Criterion 2: `unpair()` and `forgetPc()` both call the new `clearHostData(id)` -> `ProfileStore.clearHostFiles` (verified by code reading, not a ViewModel test).
+Reuse: none existed for a shared clear; the new step reuses the file-name helpers in ProfileStore.
+Notes added: none.
+Not checked: the red run before the code (the new function did not exist, so it would not compile); the ViewModel wiring itself on a device.
+
+Planner Verify: PASS 1cbf750; full suite green, GatewayStoreTest 5; old clear calls were prefs.clear() on same files, behaviour equal; unpair+forgetPc share clearHostData
