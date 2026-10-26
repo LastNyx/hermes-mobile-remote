@@ -12,7 +12,7 @@ Verify: None here; real socket against WorkLab in ticket 07.
 
 ## What to build
 
-`Gateway` stops taking one fixed URL. It takes a provider that is asked on every (re)connect attempt: bridge mode returns the same fixed URL as today; gateway mode returns a `ws(s)://<base>/api/ws?ticket=<fresh>` from `GatewayAuth`. When the upgrade fails with 401 or the ticket call says signed out, it refreshes tokens once and retries; if that fails it goes to `UNAUTHORIZED` and stops, with a message that says to sign in again (not "pair again"). 503 from refresh keeps retrying with the existing backoff. `client.capabilities` is still sent after open.
+`Gateway` stops taking one fixed URL. It takes a provider that is asked on every (re)connect attempt: bridge mode returns the same fixed URL as today; gateway mode returns a `ws(s)://<base>/api/ws?ticket=<fresh>` from `GatewayAuth`. When the upgrade fails or the ticket call returns 401 `session_expired` (see docs/GATEWAY-DESIGN.md "Verified wire facts", W7-W9), it refreshes tokens once and retries; if that fails it goes to `UNAUTHORIZED` and stops, with a message that says to sign in again (not "pair again"). 503 from refresh keeps retrying with the existing backoff. `client.capabilities` is still sent after open.
 
 ## Acceptance criteria
 

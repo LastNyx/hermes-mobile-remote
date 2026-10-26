@@ -12,7 +12,7 @@ Verify: Planner runs the app against a stand-in gateway (stdlib shim in `.scratc
 
 ## What to build
 
-With a gateway host active, the drawer lists sessions, pin/rename work, profile switching and the connection status work, using the gateway's own `/api/*` with the bearer token (shapes taken from ticket 01's verified section, not from the bridge's `/v1`). Screens and controls that only exist in the bridge are hidden for gateway hosts: Vault, cron/Scheduled, project IDEA.md, chat file download, `/v1/media` pictures (a placeholder is shown instead), the bridge status card, desktop handoff. Bridge hosts show everything as today.
+With a gateway host active, the drawer lists sessions, pin/rename work, profile switching and the connection status work, using the gateway's own `/api/*` with the bearer token (shapes taken from ticket 01's verified section, not from the bridge's `/v1`). Screens and controls that only exist in the bridge are hidden for gateway hosts: Vault, cron/Scheduled, project IDEA.md, chat file download, the bridge status card, desktop handoff. Chat pictures for a gateway host load through the gateway's `GET /api/media?path=<abs path>` (Bearer; returns `{"data_url": "data:image/...;base64,..."}`; 403/404/413/415 show a placeholder). Bridge hosts show everything as today, including `/v1/media`.
 
 ## Acceptance criteria
 
@@ -20,7 +20,8 @@ With a gateway host active, the drawer lists sessions, pin/rename work, profile 
 - [ ] JVM test: a feature-gate function returns the right set of hidden features for `gateway` and none for `bridge`
 - [ ] UI: for a gateway host the drawer has no Scheduled entry, Settings has no Vault entry, the chat has no file-download action, and the status screen shows only gateway fields
 - [ ] UI: for a bridge host nothing has changed (existing screens still show every entry)
-- [ ] A 401 from any `/api/*` call triggers the same one-shot refresh as the socket and then asks to sign in again
+- [ ] JVM test: the media loader decodes a `/api/media` data_url and falls back to a placeholder on 403/404/413/415
+- [ ] A 401 whose body has `error: "session_expired"` from any `/api/*` call triggers the same one-shot refresh as the socket and then asks to sign in again; a 401 `unauthenticated` is not a refresh case (docs/GATEWAY-DESIGN.md W7)
 - [ ] An API without its screen fails this ticket.
 
 ## Facts that hold for every ticket
