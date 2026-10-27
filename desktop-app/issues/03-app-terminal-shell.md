@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: App
-Status: review
+Status: done
 Round: 0
 Blocked by: None
 Terms: terminal shell
