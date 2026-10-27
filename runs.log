@@ -104,3 +104,4 @@
 20261028-000022	planner	planner	NOTE status 01 done	turns=-	1s	out=None	list$=None	denials=0	-	feature=desktop-app	test=-	in=None	cw=None	cr=None	repo=hermes-mobile-remote	backend=-	ticket=01-app-bridge-supervise.md	action=status	fmt=1
 20261028-000023	planner	planner	NOTE status 02 done	turns=-	1s	out=None	list$=None	denials=0	-	feature=desktop-app	test=-	in=None	cw=None	cr=None	repo=hermes-mobile-remote	backend=-	ticket=02-app-bridge-local-api.md	action=status	fmt=1
 20261028-000024	planner	planner	NOTE status 03 done	turns=-	1s	out=None	list$=None	denials=0	-	feature=desktop-app	test=-	in=None	cw=None	cr=None	repo=hermes-mobile-remote	backend=-	ticket=03-app-terminal-shell.md	action=status	fmt=1
+20261028-000025	planner	planner	NOTE status 02 done	turns=-	1s	out=None	list$=None	denials=0	-	feature=desktop-app	test=-	in=None	cw=None	cr=None	repo=hermes-mobile-remote	backend=-	ticket=02-fix-reuse-qr.md	action=status	fmt=1
