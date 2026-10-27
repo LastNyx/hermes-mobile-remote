@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: App
-Status: todo
+Status: in-progress
 Round: 1
 Blocked by: 03-app-terminal-shell.md
 Terms: terminal shell
