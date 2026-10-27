@@ -10,3 +10,4 @@ Chat-made rules the files cannot show, one line each, newest last.
 - 2026-10-27 23:51 planner: pre-added crates (ureq3, sha2, hex, flate2, tar, zip, semver, sysinfo, libc, windows-sys 0.61, tempfile) so dev tickets 05-34 need no Cargo.toml edits
 - 2026-10-27 23:54 review 1-1 FAIL: all 3 findings confirmed in code; fix tickets 01-fix (stdin EOF), 02-fix (shared QR/URI helper), 03-fix (Windows quoted path); possible items folded into 02-fix
 - 2026-10-27 23:59 delegated: review rounds and small findings (user away: run all tickets to done, decide within the design)
+- 2026-10-28 00:00 planner fixed directly: review 1-2 finding (/dev/null stdin test) in 6624d06; batch 1 closed after round 2 without a round 3 (only finding was test-only). Possible (app.py calls cli._bridge_urls) left as-is
