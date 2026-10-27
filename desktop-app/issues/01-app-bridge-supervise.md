@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: App
-Status: in-progress
+Status: review
 Round: 0
 Blocked by: None
 Terms: supervisor, quick failure, exit 75, port conflict
@@ -76,3 +76,12 @@ every OS.
   systemd units from a test.
 
 ## Result
+
+Commit fafdd80. `cd bridge && uv run pytest -q`: 152 passed.
+- Tests in bridge/tests/test_supervise.py: 76 exit+sentence (criterion 1); 75 restart 2 s + reset (2); backoff 5/10/15..60 cap, 3 s min, 20 s reset (3); 76 no restart + log line (4); UTF-8 log, child output, 2 MB rotation (5); stop terminates child (6); `supervise --help` (7). Existing suite green.
+- Reused: `host().state_dir()`, the ps1 policy numbers; nothing existing for log rotation. Notes added: 1.
+- Red step not observed: the only allowed command is the whole suite, so tests and code were written together before the first run.
+- `bridge/windows/supervise.ps1` is now superseded; left in place for the planner to delete.
+Not checked: real child process via `popen_launcher` and real SIGTERM/Ctrl+C (Verify line); "parent closing" (stdin EOF) is not implemented; Windows.
+
+Planner Verify: PASS isolated XDG port 18650: supervise spawned serve; kill -9 child -> 'exited with code -9 after 7s; restarting in 5s', new child; second supervise exit 76 + 'port conflict ... not restarting'; SIGTERM s
