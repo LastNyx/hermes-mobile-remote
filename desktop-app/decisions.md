@@ -14,3 +14,4 @@ Chat-made rules the files cannot show, one line each, newest last.
 - 2026-10-28 00:04 planner 06: control commands (start/stop, autostart, firewall fix, logs, shell) ship with an Unsupported Control impl; 20/21/31/32 replace the impl. Batch 2 runs serially (06/07 share App.vue, api.js, lib.rs)
 - 2026-10-28 00:18 planner 07: uv pinned 0.13.6 from GitHub, .sha256 sidecar; OsStep trait with NoOsStep until 20/32; uv sync --frozen --no-dev
 - 2026-10-28 00:34 planner: 07 worker killed by session switch after 61s (26-line partial edit to bridge.rs discarded, nothing committed); redispatched inside systemd-run so it survives
+- 2026-10-28 06:55 user: max_workers 1 for this project (no parallel dispatch)

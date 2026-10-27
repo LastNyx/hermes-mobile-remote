@@ -107,3 +107,15 @@ Progress and errors go to the UI; nothing runs PowerShell.
   systemd units from a test.
 
 ## Result
+
+Commit 608928e. `cd desktop && bash test.sh`: cargo 12 passed, vitest 12 passed, vite build ok. Tests and code were written together, so the red run was not observed separately.
+- Change list shown before any change, saved to INSTALLED.txt: Rust `change_list_is_shown_before_any_change_and_saved_to_installed_txt`.
+- uv on PATH skips the download; otherwise download, SHA-256 check, mismatch aborts: `uv_on_path_skips_the_download_otherwise_download_is_hash_checked`.
+- `uv sync --frozen` argv and env exact: `uv_sync_argv_and_env_are_exact`.
+- Update stops the bridge before sync and starts it after: `update_stops_the_bridge_before_syncing_and_starts_it_after`.
+- UI: Setup screen steps and errors: vitest `Setup` in ui.test.js. The Setup screen has a Continue button, and Settings has "Run setup again".
+- Reused: `bridge::BridgePaths`, `ProcessRunner`, `SystemRunner`, `LocalHttp`, `BridgeApi`, `installed_list_in` (already reads INSTALLED.txt). Nothing existed for download, hash, extract or copy.
+- Changed `ProcessRunner`: `run_with(exe, args, env, cwd)` is now the required method and `run` a default over it, because uv needs env and cwd. `bridge.rs` FakeRunner and SystemRunner were updated.
+- Data dir is `venv.parent()` from `BridgePaths`, so on Linux it ignores `XDG_DATA_HOME`, as `BridgePaths` does. Planner may want to align.
+- The real command uses `NoOsStep` until tickets 20 and 32. Update mode is chosen by the UI as `!needed`; nothing triggers it automatically after an app update.
+Not checked: real download from GitHub, real `uv sync`, Windows build, Tauri event delivery in a running app, `RealFs` copy skip list, `RealFs::which`.
