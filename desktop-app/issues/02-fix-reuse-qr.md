@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: App
-Status: in-progress
+Status: review
 Round: 1
 Blocked by: 02-app-bridge-local-api.md
 Terms: local client
@@ -19,3 +19,14 @@ Verify: None (unit tests are the check).
 
 - [ ] The URI and PNG each have one implementation, used by the CLI and the local route
 - [ ] Existing pair and local API tests stay green unchanged
+
+## Result
+
+Commit 2ad0bd4. `cd bridge && uv run pytest -q`: 178 passed.
+Refactor only; no new tests (existing tests are the check, per ticket).
+- Criterion 1: added `local_api.pairing_uri`; `cmd_pair` and `/v1/local/pair` both use `pairing_uri` + `qr_png`; removed duplicate segno code and unused `urllib.parse` imports. `cmd_devices` now creates one `DeviceStore`.
+- Criterion 2: the existing pair and local API tests pass unchanged.
+Reused: `local_api.qr_png`, `pairing_payload`. Notes added: 1 line.
+Not checked: nothing
+
+Planner Verify: SKIP refactor only; suite green

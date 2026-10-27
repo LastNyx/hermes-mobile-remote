@@ -15,3 +15,4 @@
 - Bridge: only `cd bridge && uv run pytest -q` (whole suite, ~30 s) is allowed; supervisor lives in `hermes_remote_bridge/supervise.py`, tests in `bridge/tests/test_supervise.py` (fake child/clock/sleep).
 - Bridge: `Supervisor.watch_stdin(stream)` (supervise.py) stops on stdin EOF; skips tty, None and char devices (/dev/null). A stop() before run() launches makes run return 0 without launching, so tests must gate EOF on launch.
 - Bridge: to fake the OS in terminal.py tests, monkeypatch `terminal.os` with a `SimpleNamespace(name=..., environ={...})` and `terminal.shutil.which`; `Shell(cfg=cfg)` passes config to `default_shell(cfg)`.
+- Bridge: pairing URI is `local_api.pairing_uri(payload)` and PNG bytes `local_api.qr_png(uri)`; CLI and `/v1/local/pair` both use them.
