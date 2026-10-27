@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: App
-Status: in-progress
+Status: review
 Round: 0
 Blocked by: 05
 Terms: flyout, status line, pairing
@@ -92,3 +92,14 @@ One UI used by the Windows flyout and the Linux window (D4).
   systemd units from a test.
 
 ## Result
+
+Commit: 01cf105. `bash test.sh`: cargo 8 passed (3 new in control.rs), vitest 11 passed (10 new in ui.test.js), vite build ok.
+Covers: Home switch start/stop + status (Home tests); status line trusted/untrusted + firewall/LAN/tailnet; devices list + revoke confirm + re-pair warning (Devices tests); pairing QR + Copy; doctor pending then coloured list; `via: cli` notice; settings actions with inline errors, install list / "Setup has not run yet". Every API (api.js) has a screen.
+Reuse: searched for existing helpers; only `BridgePaths`/`appVersion` reused (config_dir for settings, INSTALLED.txt). Nothing else found.
+Red step: UI tests were written before the components but I ran the suite only once, after writing the code (all green first run; no separate red run).
+New Rust commands in control.rs (Unsupported backend), registered in lib.rs. tauri.conf window size untouched (protected); CSS is fluid for ~360x520.
+Unused files: none.
+Notes added: 2 lines in .scratch/dev-notes.md.
+Not checked: real `tauri dev` window, dark/light look, real bridge status shape beyond `listen`/`network`/`firewall_ok` (LAN/tailnet derived from `listen` IPs by prefix).
+
+Planner Verify: PASS real app (debug, Linux webkit) against isolated bridge :18650: Home shows switch on + 'Network <ssid> (untrusted) · Firewall blocked · LAN not reachable · Tailnet 100.65.118.116' (screenshot ~/.hermes

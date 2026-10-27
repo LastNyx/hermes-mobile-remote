@@ -16,4 +16,6 @@
 - Bridge: `Supervisor.watch_stdin(stream)` (supervise.py) stops on stdin EOF; skips tty, None and char devices (/dev/null). A stop() before run() launches makes run return 0 without launching, so tests must gate EOF on launch.
 - Bridge: to fake the OS in terminal.py tests, monkeypatch `terminal.os` with a `SimpleNamespace(name=..., environ={...})` and `terminal.shutil.which`; `Shell(cfg=cfg)` passes config to `default_shell(cfg)`.
 - Desktop: bridge client is desktop/src-tauri/src/bridge.rs (BridgeApi, LocalHttp via ureq 3, CliJson, Fallback, BridgePaths); tests use a std TcpListener fake server and a fake ProcessRunner; ureq sends pretty-printed JSON bodies, so parse them in tests.
+- Desktop UI: tabs in App.vue (`data-nav`), screens Home/Devices/Pair/Settings.vue call api.js; UI tests in desktop/src/ui.test.js mock `invoke` per command; api.js calls invoke(cmd) with no 2nd arg when there are no args.
+- Desktop Rust: controls in src-tauri/src/control.rs (`Control` trait, `Unsupported`, `backend()` is the one place later tickets swap).
 - Bridge: pairing URI is `local_api.pairing_uri(payload)` and PNG bytes `local_api.qr_png(uri)`; CLI and `/v1/local/pair` both use them.
