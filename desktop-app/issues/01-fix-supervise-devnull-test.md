@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: App
-Status: todo
+Status: done
 Round: 2
 Blocked by: 01-fix-supervise-parent-close.md
 Terms: supervisor
@@ -21,3 +21,5 @@ Ticket 01-fix says the supervisor must not trigger when it runs as a service wit
 - [ ] Existing supervise tests stay green
 
 ## Result
+
+Planner Verify: PASS planner fixed directly (6624d06, test-only, trivial lane)
