@@ -107,3 +107,4 @@
 20261028-000025	planner	planner	NOTE status 02 done	turns=-	1s	out=None	list$=None	denials=0	-	feature=desktop-app	test=-	in=None	cw=None	cr=None	repo=hermes-mobile-remote	backend=-	ticket=02-fix-reuse-qr.md	action=status	fmt=1
 20261028-000026	planner	planner	NOTE status 03 done	turns=-	1s	out=None	list$=None	denials=0	-	feature=desktop-app	test=-	in=None	cw=None	cr=None	repo=hermes-mobile-remote	backend=-	ticket=03-fix-shell-quoted-path.md	action=status	fmt=1
 20261028-000027	planner	planner	NOTE status 05 in-progress	turns=-	1s	out=None	list$=None	denials=0	-	feature=desktop-app	test=-	in=None	cw=None	cr=None	repo=hermes-mobile-remote	backend=-	ticket=05-app-bridge-client.md	action=status	fmt=1
+20261028-000033	planner	planner	NOTE status 01 done	turns=-	6s	out=None	list$=None	denials=0	-	feature=desktop-app	test=-	in=None	cw=None	cr=None	repo=hermes-mobile-remote	backend=-	ticket=01-fix-supervise-parent-close.md	action=status	fmt=1
