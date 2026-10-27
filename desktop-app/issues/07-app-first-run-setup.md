@@ -7,7 +7,7 @@ Status: in-progress
 Round: 0
 Blocked by: 05
 Terms: first run, uv, per-user venv, change list
-Seam: Rust `Setup` with injected `Downloader`, `ProcessRunner` and `Fs`; steps reported to the UI as events; OS-specific last step behind a trait implemented by tickets 20 (Linux) and 32 (Windows).
+Seam: new `desktop/src-tauri/src/setup.rs`: Rust `Setup` with injected `Downloader`, `ProcessRunner` and `Fs`; steps reported to the UI as events; OS-specific last step behind a trait implemented by tickets 20 (Linux) and 32 (Windows).
 Test command: cd desktop && bash test.sh
 Verify: Planner runs setup on this PC into a temporary LOCALAPPDATA: uv downloaded and hash-checked, venv synced, bridge answers. The user does the same on the Arch PC.
 
@@ -38,6 +38,37 @@ Progress and errors go to the UI; nothing runs PowerShell.
 - [ ] Update path stops the bridge before syncing and starts it after
 - [ ] UI: setup screen shows each step and errors
 - [ ] An API without its screen fails this ticket
+
+## Planner notes (2026-10-28)
+
+- Files: `desktop/src-tauri/src/setup.rs` (logic, tests in the same file), commands registered in `lib.rs`,
+  a `desktop/src/Setup.vue` screen + calls added to `desktop/src/api.js` (plain JS; tests mock
+  `@tauri-apps/api/core` as `desktop/src/ui.test.js` does). App.vue shows Setup when `setup_state` says setup is
+  needed (no venv / bridge exe at `BridgePaths`) and offers it again from Settings.
+- Reuse `bridge::BridgePaths` (config dir, venv, exe), `bridge::ProcessRunner`/`SystemRunner` (process spawning,
+  CREATE_NO_WINDOW on Windows) and `bridge::LocalHttp` (the 20 s wait polls `status`). `Fs` and `Downloader`
+  are new traits; the real Downloader uses `ureq` (already in Cargo.toml). Use `sha2` + `hex` for the hash,
+  `flate2` + `tar` for .tar.gz, `zip` for .zip (all already in Cargo.toml; do not edit it).
+- Data dir: Windows `%LOCALAPPDATA%\hermes-remote`, Linux `$XDG_DATA_HOME/hermes-remote` (default
+  `~/.local/share/hermes-remote`). Venv = `<data_dir>/venv` (matches BridgePaths). uv goes to `<data_dir>/uv/`.
+- uv download (pin the version as a const `UV_VERSION = "0.13.6"`): asset
+  `https://github.com/astral-sh/uv/releases/download/<v>/uv-<target>.<ext>` with its hash file at the same URL plus
+  `.sha256` (content: `<hex>  <file name>`). Targets: `x86_64-unknown-linux-gnu` / `aarch64-unknown-linux-gnu`
+  (`.tar.gz`, binary at `uv-<target>/uv`), `x86_64-pc-windows-msvc` / `aarch64-pc-windows-msvc` (`.zip`,
+  `uv.exe` at the archive root). Known value for tests: linux x86_64 0.13.6 hash
+  `f29c3e94ffabd7e6f3ba521dba169a9b7ec12100bf3257087f0f24f6123f3645`. Set the exec bit on Unix.
+- Bridge source: Tauri resource dir `bridge/` (bundle config is the planner's, ticket 23/34). The resource dir
+  path is injected; in dev it is the repo's `bridge/` (`CARGO_MANIFEST_DIR/../../bridge`). Copy it skipping
+  `.venv`, `__pycache__`, `.pytest_cache`, `tests`.
+- `uv sync --frozen --no-dev` in `<data_dir>/bridge`, env `UV_PROJECT_ENVIRONMENT=<venv>`. Exact argv in a test.
+- "Hermes API server setting" in the change list: the bridge needs nothing enabled (install.sh says so); list it as
+  "Hermes Agent config: not changed".
+- OS last step: trait `OsStep { fn describe(&self) -> Vec<String>; fn apply(&self) -> Result<(), String>;
+  fn stop_bridge(&self) -> Result<(), String>; fn start_bridge(&self) -> Result<(), String>; }` with a
+  `NoOsStep` used until tickets 20 (Linux systemd) and 32 (Windows) implement it. With `NoOsStep`, step 4 starts
+  nothing; the 20 s wait then reports "the bridge did not answer" as a warning, not an error.
+- Events: emit `setup-progress` `{step, state: "running"|"done"|"error", message}` through an injected reporter
+  (Tauri `Emitter` in the real command, a Vec in tests).
 
 ## Facts that hold for every ticket
 
