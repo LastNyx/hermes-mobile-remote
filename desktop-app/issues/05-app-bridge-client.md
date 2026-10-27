@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: App
-Status: todo
+Status: in-progress
 Round: 0
 Blocked by: 02, 04
 Terms: local client, CLI fallback, bridge paths
