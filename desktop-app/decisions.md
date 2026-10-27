@@ -6,3 +6,4 @@ Chat-made rules the files cannot show, one line each, newest last.
 - 2026-10-27 23:31 user: run all tickets to done autonomously; planner decides within the design contract; decisions outside it go into docs/desktop-app-design.md
 - 2026-10-27 23:31 planner: this machine is Linux (CachyOS); webkit2gtk-4.1 installed rootless in ~/.local/tauri-deps; Windows Verify lines recorded SKIP (unit tests with fakes only)
 - 2026-10-27 23:34 planner: batch 1 runs serially (01/02 share cli.py, 02/03 share app.py+config.py). Kit note: field() strips a Seam's leading backtick, so a Seam starting with a backticked path yields no paths
+- 2026-10-27 23:48 planner 04 (f957196): Tauri 2.12 / Vue 3.5 / Vite 8 / vitest 5, plain JS (no TS) for the UI; updater pubkey is a placeholder until 08; .team.json stays untracked (it never was in the repo), desktop suite added locally
