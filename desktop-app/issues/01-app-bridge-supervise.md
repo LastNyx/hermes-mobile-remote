@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: App
-Status: review
+Status: done
 Round: 0
 Blocked by: None
 Terms: supervisor, quick failure, exit 75, port conflict
