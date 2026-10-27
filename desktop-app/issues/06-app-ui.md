@@ -7,7 +7,7 @@ Status: todo
 Round: 0
 Blocked by: 05
 Terms: flyout, status line, pairing
-Seam: Vue components in `desktop/src/` calling Tauri commands through one `api.ts` module (mocked in vitest).
+Seam: Vue components in `desktop/src/` calling Tauri commands through one `desktop/src/api.js` module (mocked in vitest); new Rust commands for controls in `desktop/src-tauri/src/control.rs`.
 Test command: cd desktop && bash test.sh
 Verify: Planner opens the app with `npm run tauri dev` against the real bridge, pairs a test device, revokes it, toggles the bridge; screenshots for the user. Look and feel go to the manual checks.
 
@@ -35,6 +35,25 @@ One UI used by the Windows flyout and the Linux window (D4).
 - [ ] UI: settings page lists doctor results without blocking (pending state shown)
 - [ ] UI: `via: cli` answers show the bridge-not-running notice
 - [ ] An API without its screen fails this ticket
+
+## Planner notes (2026-10-28)
+
+- The UI is plain JS, not TypeScript (planner decision for 04): the module is `desktop/src/api.js`, which exists
+  already with `appVersion()`. Tests mock `@tauri-apps/api/core` as `desktop/src/App.test.js` does.
+- Bridge data commands exist (ticket 05, `desktop/src-tauri/src/bridge.rs`): `bridge_status`, `bridge_devices`,
+  `bridge_pair {name, replace}`, `bridge_revoke {name}`, `bridge_trusted`, `bridge_trust`, `bridge_untrust {id}`,
+  `bridge_doctor`. Each returns `{via: "http"|"cli", data}`; CLI pair/revoke/trust return `data.output` text,
+  HTTP pair returns `data.code` and `data.qr_png_base64`.
+- Controls whose OS backend comes in later tickets (bridge start/stop: 20/21 Linux, 32 Windows; start at logon:
+  20/32; firewall fix: 31; open log folder; terminal shell): add Tauri commands `bridge_start`, `bridge_stop`,
+  `get_settings`, `set_start_at_logon {on}`, `firewall_fix`, `open_logs`, `set_terminal_shell {value}` in a new
+  `control.rs`, behind a `Control` trait. Ship an `Unsupported` implementation that returns the error
+  "not available yet on this platform"; the UI shows that error inline. Later tickets replace the implementation,
+  not the commands. `set_terminal_shell` may write the `terminal_shell` line in `<config_dir>/config.toml`
+  (bridge config key from ticket 03) through an injected file writer.
+- The "what this install changed" list reads `<config_dir>/INSTALLED.txt` (written by ticket 07) via a
+  `get_installed_list` command; when the file is missing it says "Setup has not run yet".
+- Register every new command in `lib.rs` `generate_handler!`.
 
 ## Facts that hold for every ticket
 
