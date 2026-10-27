@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: App
-Status: in-progress
+Status: review
 Round: 0
 Blocked by: 02, 04
 Terms: local client, CLI fallback, bridge paths
@@ -73,3 +73,13 @@ The app always gets an answer about the bridge (D8, D21).
   systemd units from a test.
 
 ## Result
+Commit 7834229. `cd desktop && bash test.sh`: cargo 5 passed (4 new), vitest 1 passed, vite build ok.
+- AC1 `local_http_sends_secret_and_parses_each_route` (fake TcpListener server, all 8 routes, header + bodies).
+- AC2 `fallback_uses_cli_on_refused_timeout_and_403` (also healthy -> `via: http`, CLI not run).
+- AC3 `cli_argv_is_exact_and_windows_hides_the_console` (fake runner; `creation_flags(Windows)` = CREATE_NO_WINDOW; SystemRunner applies it under cfg(windows)).
+- AC4 `paths_resolve_per_os_with_env_overrides`.
+Reused: nothing existing (no prior bridge client); used installed ureq, serde_json, tempfile. Tauri commands `bridge_*` registered in lib.rs.
+Notes: CLI has no status command, so `CliJson::status` returns `{"running": false}` via cli; CLI pair/revoke/trust/untrust return `{"output": <stdout>}` (not JSON). Port is read from a `port =` line in config.toml (no toml crate). Dev-notes: 1 line added.
+Not checked: real bridge / real CLI (planner's Verify), Windows build and actual console suppression, `port` key name in real config.toml.
+
+Planner Verify: PASS Fallback::real() via an example probe, isolated HOME with venv at D11 path, bridge :18650: running -> status/devices via=http; stopped -> status {running:false} via=cli, doctor checks via=cli. Windows
