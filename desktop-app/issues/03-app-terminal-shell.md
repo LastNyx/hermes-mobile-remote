@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: App
-Status: in-progress
+Status: review
 Round: 0
 Blocked by: None
 Terms: terminal shell
@@ -65,3 +65,14 @@ An override that does not exist on PATH falls back to the default and logs one w
   systemd units from a test.
 
 ## Result
+
+Commit: 62a2da5. Tests: `cd bridge && uv run pytest -q` -> 174 passed (4 new red first, then green).
+- Override verbatim -> test_override_used_verbatim_when_it_resolves
+- Windows order -> test_windows_order_pwsh_powershell_cmd
+- Missing override -> test_missing_override_falls_back_with_one_warning
+- Non-Windows default -> test_non_windows_default_unchanged
+Reused: `Config` key pattern, `shutil.which`, existing default logic; nothing existing for command-line splitting (used `shlex`).
+Wired: `create_app` default shell factory passes `cfg` to `Shell`. Notes added: 1.
+Not checked: a real Windows host, a real PTY session with an override.
+
+Planner Verify: SKIP Verify None; unit tests are the check (suite green)
