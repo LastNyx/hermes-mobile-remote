@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: App
-Status: todo
+Status: in-progress
 Round: 1
 Blocked by: 01-app-bridge-supervise.md
 Terms: supervisor
