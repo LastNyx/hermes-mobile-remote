@@ -10,4 +10,6 @@
 - The app's one OkHttpClient is `SharedHttp.client` (data/SharedHttp.kt); BridgeClient, OkHttpTransport and LiveLink.connectGateway default to it. Use it, never `OkHttpClient()`.
 - Shared path-segment encoder is top-level `enc()` in data/GatewayRest.kt (used by BridgeClient and GatewayRestClient).
 - `CronSource` (data/GatewayRest.kt) is implemented by BridgeClient and GatewayRestClient; VM `source as? CronSource` feeds CronJobs. `profileParam()` returns null for default, so gateway cron uses its own `cronProfile()` that always sends a name.
+- Bridge: pydantic request models used by routes must be module-level in app.py (a class inside `create_app` 422s under `from __future__ import annotations`).
+- Bridge: JSON documents shared by CLI `--json` and `/v1/local/*` live in `local_api.py`; CLI tests monkeypatch `cli.current_network`, so builders take the network as an argument. `create_app` creates the real `Config.local_secret_file` unless a test sets it.
 - Bridge: only `cd bridge && uv run pytest -q` (whole suite, ~30 s) is allowed; supervisor lives in `hermes_remote_bridge/supervise.py`, tests in `bridge/tests/test_supervise.py` (fake child/clock/sleep).

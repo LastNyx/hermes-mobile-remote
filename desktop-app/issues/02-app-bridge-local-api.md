@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: App
-Status: in-progress
+Status: review
 Round: 0
 Blocked by: None
 Terms: local client, local secret, loopback peer
@@ -76,3 +76,15 @@ The desktop app controls the bridge fast, without a device token, and nothing el
   systemd units from a test.
 
 ## Result
+
+Commit f01372f. `cd bridge && uv run pytest -q`: 170 passed (new `bridge/tests/test_local_api.py` + existing suite green).
+- Secret created 0600 / re-created with new value: `test_secret_is_created_0600_...`
+- Loopback + secret 200 for all 8 routes, missing/wrong/truncated secret 403 `forbidden_local`: parametrized `test_loopback_with_the_secret_...`
+- Tailnet and LAN (https) peer with right secret 403: `test_a_non_loopback_peer_...`
+- Route JSON == CLI `--json` (devices, trust, doctor; post trust/untrust follow it): `test_devices_route_equals_cli_json`, `..trust..`, `..doctor..`, `test_post_trust_and_untrust_...`; status, pair, revoke have their own tests (CLI has no `--json` for them)
+- No relay allowlist entry, no device token needed: `test_local_api_is_in_no_relay_allowlist_...`
+- test_app / test_cli_json unchanged and green. Reused: DeviceStore, TrustStore, doctor.collect, cli._bridge_urls, firewall.state, is_loopback; CLI now calls shared `local_api.devices_doc/trust_doc/pairing_payload`. Found nothing existing for hex secret or PNG-to-bytes QR (new `local_secret.py`, `local_api.qr_png`).
+- Notes added: 2 lines in `.scratch/dev-notes.md`.
+Not checked: real curl on this PC/tailnet (planner's Verify), Windows (file perms rely on %LOCALAPPDATA%), the existing tests still create the default `~/.config/hermes-remote/local-secret` as a side effect of `create_app`.
+
+Planner Verify: PASS isolated serve :18650: secret file 0600; /v1/local/status no secret 403, wrong 403, right 200 (running, network, firewall_ok); tailnet 100.65.118.116 with right secret 403 forbidden_local. Note: test 
