@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: Linux
-Status: in-progress
+Status: review
 Round: 0
 Blocked by: 06
 Terms: app window, optional tray
@@ -87,3 +87,15 @@ opens the window; a decline is remembered (same rule as `host/linux.py:prompt_tr
   systemd units from a test.
 
 ## Result
+
+Commit e98854f. `bash test.sh`: cargo 26 passed, vitest 15 passed, vite build ok.
+- Criterion 1 (tray only with host): `tray_is_created_only_when_a_status_notifier_host_exists` (TrayPolicy + probe via fake runner).
+- Criterion 2 (menu items/actions): `menu_items_and_their_actions` (fake AppHandleLike + fake Control).
+- Criterion 3 (close behaviour): `closing_hides_with_a_tray_and_quits_without` (`close_action`; the handler in `on_window_event` is wired, not window-tested).
+- Criterion 4 (trust once, remembered): `trust_notification_fires_once_per_untrusted_network_and_is_remembered` (also across restart via desktop-asked.json).
+- Reused: `ProcessRunner`, `BridgeApi`/`Fallback::real`, `BridgePaths`, `Control`/`backend()` (made pub); nothing existing for the dbus probe.
+- Tests and module were written together, so no separate red run. Notes added: 1.
+- Notification click is not supported by the notification plugin on Linux, so the window is shown when the notification fires.
+Not checked: real tray/StatusNotifier on KDE/GNOME, launcher `.desktop` entry, real notification, Windows build.
+
+Planner Verify: PASS real app on KDE Plasma (Wayland), isolated bridge :18650: window opens with live status; StatusNotifier probe true -> tray item registered by the app pid (blue icon in panel); untrusted network id rec
