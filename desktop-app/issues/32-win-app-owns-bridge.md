@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: Windows
-Status: in-progress
+Status: review
 Round: 0
 Blocked by: 01, 05, 07
 Terms: Job Object, autostart
@@ -97,3 +97,14 @@ app; the settings page says so.
   systemd units from a test.
 
 ## Result
+
+Commit d166661. `bash test.sh`: cargo 37 passed, vitest 18 passed, vite build ok.
+- Spawn flags + Job Object limit: `the_job_is_created_limited_to_kill_on_close_then_the_child_is_assigned` (fake JobApi).
+- Quit stops child first: `quit_stops_the_child_before_exiting`.
+- Autostart on/off -> plugin (and start/stop, OS step): `start_at_logon_on_and_off_map_to_the_autostart_plugin`.
+- UI toggle + crash note: ui.test.js "on Windows the start at logon toggle ... crash note shows" (mounted Settings).
+- Reuse: `ProcessSupervisor`/`Spawner`/`Proc`, `OsStep`, `Control`; nothing existing for Job Objects. Notes added: 1.
+- Tests were written after the code in one pass (not strictly red first).
+Not checked: the `cfg(windows)` code (Win32 calls, autostart plugin, ExitRequested handler) was not compiled (no `cargo xwin` run); real Windows behaviour. Settings still shows the Linux run-mode select on Windows (not in scope).
+
+Planner Verify: SKIP no Windows host (Job Object kill, Run key, taskkill test need Windows/CI). Checked: suite green, cargo xwin check --tests clean. Planner fixed directly 412b634: quit handler prevented ExitRequested th
