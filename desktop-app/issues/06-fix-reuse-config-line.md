@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: App
-Status: review
+Status: done
 Round: 1
 Blocked by: 06-app-ui.md
 Terms: bridge paths, terminal shell
