@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: Linux
-Status: in-progress
+Status: review
 Round: 1
 Blocked by: 21
 Terms: app-only mode, always-on mode
@@ -32,3 +32,5 @@ Tests: `bash test.sh` green: 30 Rust passed, 15 vitest passed, vite build ok.
 - Notes added: 1 line in .scratch/dev-notes.md.
 - I did not watch the new tests fail before the fix; I wrote them and the fix in the same step, then ran the suite once.
 Not checked: real systemd/bridge run; the existing "service still running" error path does not restore (not in ticket).
+
+Planner Verify: SKIP unit tests with fake service/child call log are the check
