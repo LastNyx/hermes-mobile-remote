@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: Linux
-Status: todo
+Status: done
 Round: 0
 Blocked by: 07, 20
 Terms: AppImage, deb
@@ -63,3 +63,5 @@ until the follow-up PR (D23).
   systemd units from a test.
 
 ## Result
+
+Planner Verify: PASS planner-run (63367dc): npx tauri build on this PC gave Hermes Remote_0.1.0_amd64.AppImage (118 MB) and .deb (8 MB); .deb has bridge source (pyproject, uv.lock, package, no __pycache__), .desktop entry
