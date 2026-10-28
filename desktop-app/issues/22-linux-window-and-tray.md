@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: Linux
-Status: todo
+Status: in-progress
 Round: 0
 Blocked by: 06
 Terms: app window, optional tray
