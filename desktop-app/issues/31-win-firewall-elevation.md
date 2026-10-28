@@ -3,11 +3,11 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: Windows
-Status: todo
+Status: in-progress
 Round: 0
 Blocked by: 30
 Terms: elevation, firewall rule
-Seam: `host/windows.py` `run_elevated` replaced by `elevate_cli(args)` (ShellExecuteW 'runas' on the venv's bridge exe) and `firewall add|remove` CLI paths using FwPolicy2 through `winapi.py`.
+Seam: `bridge/hermes_remote_bridge/host/windows.py`, `bridge/hermes_remote_bridge/host/winapi.py`, `bridge/hermes_remote_bridge/firewall.py`, `bridge/hermes_remote_bridge/cli.py` (`firewall` subcommand): `run_elevated` replaced by `elevate_cli(args)` (ShellExecuteW 'runas' on the venv's bridge exe) and `firewall add|remove` CLI paths using FwPolicy2 through `winapi.py`.
 Test command: cd bridge && uv run pytest -q
 Verify: Planner on this PC (user clicks the UAC prompt): rule added (Private profile, private ranges, port 8650), visible in wf.msc; removed again.
 
@@ -26,6 +26,27 @@ The firewall fix keeps one UAC prompt (D9): the app or CLI relaunches `hermes-re
 - [ ] Rule properties exact (fake FwPolicy2 records them)
 - [ ] Elevation argv exact; no PowerShell
 - [ ] Remove deletes only our rule
+
+## Planner notes (2026-10-28)
+
+- Today `firewall.open_port("windows", port)` joins the `New-NetFirewallRule` argv from `open_commands` and runs it
+  through `WindowsHost.run_elevated` (elevated PowerShell). Replace that path: `WindowsHost.elevate_cli(args)` runs
+  `ShellExecuteExW` with verb `runas` on the venv's own exe (`sys.executable`'s sibling
+  `Scripts\hermes-remote-bridge.exe`, fall back to `sys.argv[0]`), `SEE_MASK_NOCLOSEPROCESS`, waits for it
+  (`WaitForSingleObject`, then `GetExitCodeProcess`), returns True on exit 0. A cancelled UAC prompt
+  (`ERROR_CANCELLED` 1223) returns False. ctypes goes in `winapi.py` behind the existing `_safe` style, never raises.
+- CLI: `firewall add --port N --elevated` and `firewall remove --port N --elevated` (hidden flags) do the FwPolicy2
+  write in the elevated process: rule Name = `FIREWALL_RULE` ("Hermes Mobile Remote"), Description = COMMENT,
+  Protocol TCP (6), LocalPorts str(N), Direction inbound (1), Action allow (1), Profiles = Private (2),
+  RemoteAddresses = ",".join(PRIVATE_RANGES), Enabled True; through a COM wrapper inside winapi's `_com()`.
+  Remove: delete only rules named FIREWALL_RULE (loop `Rules.Remove(name)` while one exists).
+- `open_commands("windows", port)` keeps showing the user what will happen, now as the elevated command line
+  (`hermes-remote-bridge firewall add --port N --elevated`) instead of a PowerShell cmdlet.
+- `run_elevated` is no longer called for the firewall; leave the method in place, unused (planner deletes with 35).
+- Tests: a fake elevate (argv recorded) and a fake FwPolicy2 rule object (properties recorded); a fake shell32 that
+  returns 1223 for the cancelled case. No real UAC, firewall or COM in tests.
+- The app's Settings "Firewall fix" on Windows: `control.rs` WindowsControl `firewall_fix` runs the bridge CLI
+  `firewall --yes` through `bridge::SystemRunner` (CREATE_NO_WINDOW), which then raises the single UAC prompt.
 
 ## Facts that hold for every ticket
 
