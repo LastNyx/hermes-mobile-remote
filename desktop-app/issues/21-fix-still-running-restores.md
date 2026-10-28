@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: Linux
-Status: todo
+Status: done
 Round: 2
 Blocked by: 21
 Terms: app-only mode, always-on mode
@@ -24,3 +24,5 @@ this case, so there is nothing to stop.
 - [ ] Disable or status failing also re-enables the service and returns that error
 
 ## Result
+
+Planner Verify: PASS planner fixed directly (9b3e7fc, one function, trivial lane, test added)
