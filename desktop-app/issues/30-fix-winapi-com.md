@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: Windows
-Status: in-progress
+Status: review
 Round: 1
 Blocked by: 30
 Terms: default route, router MAC, connection profile, comtypes
@@ -47,3 +47,12 @@ Found by the planner (Sonnet Win32/COM review of 30, confirmed in the code): the
       `({GUID}, name)`; firewall_rules likewise
 - [ ] service_state active/inactive with the configured port; existing tests green
 
+## Result
+Commit aaed0c9. `cd bridge && uv run pytest -q`: 190 passed.
+Tests: struct sizes/offsets (test_struct_sizes_and_key_offsets); IPv4 byte order, metric-0 fallback, neighbor state/zero-MAC (test_default_routes_*, test_neighbor_mac_*); never-raise, one per function (parametrized test_public_functions_return_default_*); fake comtypes for network_profile and firewall_rules (wrap, _com order init/create/uninit, GetConnectivity preference); service_state active/inactive with port 9123 (test_host.py).
+Reuse: nothing existing for COM/_safe; Config.load().port reused (lazy import, circular). doctor.py reads fine for "inactive" (Windows branch checks the port and prints a start hint).
+Item 7: c_size_t(257) and windows.py docstring done. Corrected my offset guess: ForwardRow NextHop is 44, Metric 84, IfRow Metric 148 (sizes still 28/104/88/168).
+Notes added: 1.
+Not checked: real Windows COM/ctypes run; real Config.load() port on a Windows host.
+
+Planner Verify: PASS code shows _com() around COM, GetBestInterface wrapping, @_safe on public functions; suite green. Real Windows still a user/CI check
