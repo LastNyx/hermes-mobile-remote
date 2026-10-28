@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: Windows
-Status: review
+Status: done
 Round: 0
 Blocked by: None
 Terms: default route, router MAC, connection profile, comtypes
