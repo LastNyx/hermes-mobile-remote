@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: App
-Status: todo
+Status: in-progress
 Round: 0
 Blocked by: 07
 Terms: updater, release check
