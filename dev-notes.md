@@ -20,4 +20,5 @@
 - Desktop Rust: controls in src-tauri/src/control.rs (`Control` trait, `Unsupported`, `backend()` is the one place later tickets swap).
 - Bridge: pairing URI is `local_api.pairing_uri(payload)` and PNG bytes `local_api.qr_png(uri)`; CLI and `/v1/local/pair` both use them.
 - Desktop setup: src-tauri/src/setup.rs (`Setup` with injected Downloader/ProcessRunner/Fs/OsStep/BridgeApi); `ProcessRunner::run_with(exe,args,env,cwd)` is the required method, `run` is a default over it.
+- Desktop Rust: `bridge::config_value(text, key)` is the one `key = value` config.toml reader; `settings_in(dir, &dyn Control)` takes start_at_logon from `Control::start_at_logon`.
 - Desktop UI: Setup.vue listens via api.js `onSetupProgress` (dynamic import of @tauri-apps/api/event); ui.test.js mocks that module with a `listen` that stores the handler.
