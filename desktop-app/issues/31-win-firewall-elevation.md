@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: Windows
-Status: in-progress
+Status: review
 Round: 0
 Blocked by: 30
 Terms: elevation, firewall rule
@@ -85,3 +85,14 @@ The firewall fix keeps one UAC prompt (D9): the app or CLI relaunches `hermes-re
   systemd units from a test.
 
 ## Result
+
+Commit c2dfea8. `cd bridge && uv run pytest -q`: 196 passed.
+- Rule properties exact: `test_firewall_add_rule_sets_exact_properties` (test_winapi.py, fake FwPolicy2/FWRule) and `test_windows_host_firewall_add_and_remove_use_rule_name_and_private_ranges`.
+- Elevation argv exact, no PowerShell: `test_windows_elevation_argv_is_exact_and_uses_no_powershell`, `test_windows_firewall_open_port_elevates_the_cli_add`, `test_run_elevated_returns_none_when_uac_is_cancelled` (fake shell32, 1223), `test_elevated_firewall_cli_writes_the_rule_through_the_host`.
+- Remove deletes only our rule: `test_firewall_remove_rules_deletes_only_the_named_rule`.
+- Reused: `_com`, `_policy`, `_wrap`, `_safe`, `FIREWALL_RULE`, `PRIVATE_RANGES`, `COMMENT`. Replaced the old New-NetFirewallRule test.
+- `WindowsHost.run_elevated` (PowerShell) is now unused: planner deletes with 35. Not touched: the app's `control.rs` firewall_fix (not in this ticket's seam).
+- Notes added: 1 line in .scratch/dev-notes.md.
+Not checked: real UAC, real FwPolicy2 COM, real ShellExecuteExW struct layout on Windows (planner's Verify); `firewall remove` non-elevated prompt text.
+
+Planner Verify: SKIP no Windows host (UAC + FwPolicy2 rule in wf.msc need Windows/CI). Checked: SHELLEXECUTEINFOW layout matches SDK (112 bytes, hProcess @104); planner wired app Settings firewall fix -> 'firewall --yes' 
