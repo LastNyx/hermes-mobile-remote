@@ -1,6 +1,6 @@
 1: 01,02,03,01-fix,02-fix,03-fix base: 5e75fb60f9b81edb5bf80453e99c94f1a0b69d93
 Round 2: Parallel: 01-fix 03-fix | 02-fix
-2: 05,06,07 base: 6624d06d4fedf86d1b69f1f12f38bf88feda774f
+2: 05,06,07,06-fix,07-fix base: 6624d06d4fedf86d1b69f1f12f38bf88feda774f
 3: 20,21,22 base:
 4: 30,31,32,33 base:
 5: 34,08 base:

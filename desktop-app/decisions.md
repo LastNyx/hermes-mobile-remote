@@ -15,3 +15,4 @@ Chat-made rules the files cannot show, one line each, newest last.
 - 2026-10-28 00:18 planner 07: uv pinned 0.13.6 from GitHub, .sha256 sidecar; OsStep trait with NoOsStep until 20/32; uv sync --frozen --no-dev
 - 2026-10-28 00:34 planner: 07 worker killed by session switch after 61s (26-line partial edit to bridge.rs discarded, nothing committed); redispatched inside systemd-run so it survives
 - 2026-10-28 06:55 user: max_workers 1 for this project (no parallel dispatch)
+- 2026-10-28 09:18 review 2-1 FAIL: both findings confirmed; possible items (duplicate setup listener, stale files on update copy, top-level-only tests skip) + hardcoded 20 s text folded into 07-fix; start_at_logon possible folded into 06-fix by reviewer. Serial: 06-fix then 07-fix (both edit bridge.rs)
