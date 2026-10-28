@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: App
-Status: todo
+Status: done
 Round: 2
 Blocked by: 30
 Terms: flyout
@@ -21,3 +21,5 @@ Verify: Planner: both suites green.
 - [ ] No behaviour change; all existing `flyout` tests and bridge tests stay green
 
 ## Result
+
+Planner Verify: PASS planner fixed directly (413aba2, trivial lane)
