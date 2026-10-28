@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: Windows
-Status: in-progress
+Status: review
 Round: 1
 Blocked by: 33
 Terms: flyout, tray
@@ -31,3 +31,14 @@ Verify: Planner: `cargo xwin check --tests --target x86_64-pc-windows-msvc` clea
 - [ ] UI: no run-mode select on Windows (vitest)
 
 ## Result
+Commit 03794b7. test.sh: cargo 51 passed, vitest 19 passed, vite build ok.
+- Trust routes to flyout: `flyout::tests::windows_trust_notification_routes_to_the_flyout` (`trust_target`).
+- Missing monitor fallback: `a_missing_monitor_falls_back_to_the_primary_work_area` (`work_area`, result inside rect via `place`).
+- Tray click after focus-loss hide: `a_tray_click_right_after_a_focus_loss_hide_is_ignored` (`ignore_tray_click`, 300 ms).
+- No run-mode select on Windows: ui.test.js "on Windows there is no run mode select" (Settings.vue).
+Reused: `place`, `show_main`, existing Settings platform check; nothing existing for fallback/timing.
+The cfg(windows) wiring in tray.rs (open_flyout, show_for_trust, FOCUS_HIDE_AT, LAST_TRAY_POS) is not compiled by test.sh.
+Notes added: 1 line in .scratch/dev-notes.md.
+Not checked: cargo xwin Windows compile of tray.rs, real Windows run.
+
+Planner Verify: PASS unit tests green; cargo xwin check --tests clean after planner fix ce931a8 (tauri::monitor::Monitor is not public -> tauri::Monitor). Real flyout still a Windows check
