@@ -23,4 +23,5 @@
 - Desktop Rust: `bridge::config_value(text, key)` is the one `key = value` config.toml reader; `settings_in(dir, &dyn Control)` takes start_at_logon from `Control::start_at_logon`.
 - Desktop UI: Setup.vue listens via api.js `onSetupProgress` (dynamic import of @tauri-apps/api/event); ui.test.js mocks that module with a `listen` that stores the handler.
 - Desktop Linux: src-tauri/src/linux_service.rs (`ServiceControl`/`Systemd`, `LinuxControl`, `LinuxOsStep`, get/set_linger); `backend()` in control.rs and `with_real` in setup.rs pick it under cfg(target_os="linux"). Fake runner there matches replies by argv-prefix.
+- Desktop Linux: run_mode.rs (`RunModeSwitcher`, `ProcessSupervisor<Spawner>` with `OsSpawner` pre_exec PDEATHSIG, `ModeControl` wraps `backend()` in control.rs); mode saved in `<config_dir>/desktop.toml`; `app_child()` is the app's one child.
 - Desktop Rust: `RealFs::copy_dir` (setup.rs) replaces the destination (remove then copy); `COPY_SKIP` applies to the top level only. ui.test.js `listening` counts live setup-progress listeners.

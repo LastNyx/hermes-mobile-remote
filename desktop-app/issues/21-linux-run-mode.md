@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: Linux
-Status: in-progress
+Status: review
 Round: 0
 Blocked by: 01, 20
 Terms: app-only mode, PDEATHSIG
@@ -87,3 +87,14 @@ settings page says app-only mode has no systemd sandboxing. The mode is saved in
   systemd units from a test.
 
 ## Result
+
+Commit: b4d6c50. `cd desktop && bash test.sh`: cargo 22 passed, vitest 15 passed, vite build ok.
+- Switch order (both directions): `the_old_owner_is_stopped_and_confirmed_before_the_new_one_starts` (fake service + child call log; mode saved).
+- PDEATHSIG: `the_child_is_spawned_with_pdeathsig` (fake Spawner sees pdeathsig=true, args `supervise`); `the_os_spawner_installs_the_hook...` runs a real `/bin/sh -c 'exit 76'` through OsSpawner with the hook.
+- Exit 76: same OsSpawner test; switcher returns the port-conflict message and does not save the mode.
+- UI: ui.test.js "run mode control..." (select, no-sandbox note, logon/linger disabled, error shown and select reverted on failure).
+- Reused: `ServiceControl`, `BridgePaths`, `config_value`, `Control`; new: run_mode.rs (nothing existing for spawning a child). Commands `get_run_mode`/`set_run_mode` registered; app start spawns the child in app-only mode; `ModeControl` redirects start/stop to the child.
+- Notes added: 1 line in .scratch/dev-notes.md.
+Not checked: real kill -9 of the app / real systemd switch on the Arch PC (Verify line); `stop` kill-after-grace path and `ModeControl` have no test; Windows build.
+
+Planner Verify: PASS real ProcessSupervisor<OsSpawner> via probe, isolated HOME :18650: kill -9 of the parent -> supervise and serve both gone, port free (PDEATHSIG works); stdin-close stop -> clean exit, port free; with 
