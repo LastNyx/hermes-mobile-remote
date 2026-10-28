@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: Windows
-Status: review
+Status: done
 Round: 0
 Blocked by: 06, 32
 Terms: flyout, tray
