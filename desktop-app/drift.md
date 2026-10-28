@@ -1,0 +1,13 @@
+# Drift: desktop-app part 2 (SECURITY, ARCHITECTURE, BRIDGE_API, CHANGELOG, ROADMAP:21, windows-tray-design header, manual checks)
+- Glossary: none. Prompt names no path; Read `CONTEXT.md` and `GLOSSARY.md` at repo root: "File does not exist"; Glob `**/{CLAUDE,AGENTS,CONTRIBUTING,CONTEXT,GLOSSARY}*.md`: CONTRIBUTING.md only. Term check not run.
+- Identifiers in new docs found in code (Grep `X-Hermes-Local|forbidden_local|local-secret|terminal_shell|bridge\.log|INSTALLED\.txt|...`, 139 hits, 34 files): all present.
+- `/v1/local/{status,devices,pair,revoke,trust,untrust,doctor}` (Grep `/v1/local/` in bridge/): all 7 paths in bridge/hermes_remote_bridge/app.py:410-469; bodies match bridge/tests/test_local_api.py.
+- Renamed-term suspect: "Hermes Mobile Remote" is still the firewall rule and the old Scheduled Task name (migration.rs); app is "Hermes Remote" (Grep `Hermes Mobile Remote|Hermes Remote`, 52 files). Kept as written; unchecked whether intended.
+- Stale, outside edit list: `docs/ROADMAP.md:31-32` still says "Windows tray runs the bridge, Linux tray controls the systemd service" (Read).
+- Stale, outside edit list: `docs/windows-tray-design.md:22-23` names `tray.ps1` and `supervise.ps1` under the new header (Grep `install\.ps1|install\.cmd|tray\.cmd|pair\.cmd|Scheduled Task|tray\.ps1`).
+- New terms, no glossary: "Hermes Remote", "Always on", "Only while the app is open", "Start at login", "Keep running after logout", "Trust this network?". Not matched string by string against desktop/src (unchecked).
+- Unchecked: `/v1/local/*` response fields (BRIDGE_API says JSON equals the CLI's `--json`; fields not listed).
+- Unchecked: SECURITY "0600 does not apply on Windows; NTFS profile permissions" (general, not in docs-facts).
+- Unchecked: updater signing key present (`TAURI_SIGNING_PRIVATE_KEY`, pubkey in tauri.conf.json); SECURITY says it must be in place before the first desktop release.
+- Unchecked: D-number coverage. User docs cite no D-numbers; manual checks cite D5, D6, D11, D12, D16, D20, D21, D24, D33, D43, D44.
+- Part 1's drift list was replaced by this one; its open items (INSTALL venv paths, PLATFORMS "no Windows machine") are not rechecked here.

@@ -31,3 +31,4 @@ Chat-made rules the files cannot show, one line each, newest last.
 - 2026-10-28 11:13 review 4-1 FAIL: all findings confirmed; run-mode select on Windows folded into 33-fix, remove confirmation into 31-fix; serial dispatch
 - 2026-10-28 11:24 planner fixed directly review 4-2 in 413aba2: show_main always restores normal window style; navigate listener removed on unmount + vitest; docstring. Clamp 'no-op' finding disproved: clamp's lower bound matters when the work area is smaller than the flyout (existing test fails without it). Batch 4 closed after round 2
 - 2026-10-28 11:26 review 5-1 FAIL: uninstall stop step no-ops in a fresh process (confirmed: ProcessSupervisor::stop with no child returns Ok) -> 34-fix; duplicate UpdateCheck constructor left (possible)
+- 2026-10-28 11:48 docs drift: ROADMAP 'Done' list and windows-tray-design.md (now headed 'Replaced by') describe history, left as is; 'Hermes Mobile Remote' stays the firewall rule/old task name by design
