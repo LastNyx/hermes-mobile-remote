@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: App
-Status: todo
+Status: review
 Round: 0
 Blocked by: 04
 Terms: release assets
@@ -63,3 +63,5 @@ Unsigned code (D24).
   systemd units from a test.
 
 ## Result
+
+Planner Verify: SKIP planner-run (b7fb718): ci.yml desktop job (ubuntu-24.04 + windows-latest: test.sh + debug bundles), release.yml desktop job on desktop-v* tags (tauri-action, draft, updater json, signing key + pubkey 
