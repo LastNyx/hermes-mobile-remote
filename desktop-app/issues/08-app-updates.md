@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: App
-Status: in-progress
+Status: review
 Round: 0
 Blocked by: 07
 Terms: updater, release check
@@ -86,3 +86,14 @@ update path re-syncs the venv.
   systemd units from a test.
 
 ## Result
+
+Commit: a10b151. `cd desktop && bash test.sh`: cargo 34 passed, vitest 17 passed, vite build ok.
+- AC1 (updater vs release check by bundle type, fake bundle): Rust `bundle_type_picks_updater_or_release_check`.
+- AC2 (newer only, semver; other tags, errors, no release = no banner): Rust `banner_only_for_a_newer_desktop_release_by_semver`.
+- AC3/AC4 (UI banner link on .deb, 'Restart to update' on updater builds, error inline, nothing without update): vitest `UpdateBanner` mounts App.
+- Resync marker: Rust `install_leaves_the_resync_marker_then_installs`; vitest "re-syncs the venv on start" (setup_state `resync` -> `setup_run {update:true}`; setup_run clears the marker on success).
+- Reuse: semver, ureq, `BridgePaths::from_env().config_dir`, `setup_run`/`setup_state`, api.js `invoke` pattern; no existing update code found.
+- Notes added: 1 line to .scratch/dev-notes.md.
+Not checked: the real GitHub request, the real Tauri updater download/restart (needs a signed release; updater pubkey/endpoint in tauri.conf.json not touched or verified), and that a `target=_blank` link opens in the system browser inside the Tauri webview (shell-open may be needed).
+
+Planner Verify: PASS real UpdateCheck (release-check mode) with a test release JSON: app 0.1.0 -> 0.2.0 link (desktop-v tags only, APK tag and broken tag ignored, highest newer wins); app 0.2.0/0.3.0 -> none; live GitHub 
