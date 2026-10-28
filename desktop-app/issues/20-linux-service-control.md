@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: Linux
-Status: review
+Status: done
 Round: 0
 Blocked by: 05, 07
 Terms: always-on mode, user service, linger
