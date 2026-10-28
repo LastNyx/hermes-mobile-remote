@@ -3,11 +3,11 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: Windows
-Status: todo
+Status: in-progress
 Round: 0
 Blocked by: 06, 32
 Terms: flyout, tray
-Seam: Rust `FlyoutPlacement` (pure function: taskbar edge + work area + tray click point -> window rect) plus the Tauri tray/window wiring.
+Seam: new `desktop/src-tauri/src/flyout.rs` plus the cfg(windows) branches in `desktop/src-tauri/src/tray.rs`: Rust `FlyoutPlacement` (pure function: taskbar edge + work area + tray click point -> window rect) plus the Tauri tray/window wiring.
 Test command: cd desktop && bash test.sh
 Verify: Planner on this PC: left click opens the flyout at the taskbar corner, focus loss closes it, right click shows the menu; screenshots. Top/side taskbars go to the manual checks.
 
@@ -28,6 +28,27 @@ decline is remembered.
 - [ ] Menu items and actions (fake app handle)
 - [ ] Icon state mapping from status
 - [ ] Trust notification once per network; decline remembered
+
+## Planner notes (2026-10-28)
+
+- `tray.rs` (ticket 22) already builds the tray, the menu (`MENU_ITEMS`, `menu_action`), close-to-tray and the trust
+  notification poll (`poll_once`, `desktop-asked.json`). Reuse all of it. Today `install()` decides the tray with
+  `has_status_notifier` (dbus-send), which is false on Windows, so Windows gets no tray: make the probe
+  `cfg(windows)` -> always true. Add "Pair a device" to the menu (it shows the window and emits an event
+  `navigate` with `"pair"`; `App.vue` listens and switches tab).
+- Left click (Windows only; Tauri's `TrayIconEvent::Click { button: Left, button_state: Up, position, .. }`):
+  toggle the `main` window as a flyout: when showing, `set_decorations(false)`, `set_always_on_top(true)`,
+  `set_skip_taskbar(true)`, size 360x520 logical, position from `flyout::place(...)`; `WindowEvent::Focused(false)`
+  hides it (Windows only). Linux keeps the ticket-22 behaviour (no left-click handling).
+- `flyout::place(edge, work_area, click, size) -> Rect` is a pure function (all four edges, multi-monitor work
+  areas with negative origins, clamped inside the work area); tests cover each edge. The taskbar edge comes from
+  `SHAppBarMessage(ABM_GETTASKBARPOS)` (`windows-sys` features `Win32_UI_Shell` already enabled) behind a
+  `Taskbar` trait; the work area from Tauri's `monitor_from_point(...)` / `work_area()` (fallback: the monitor size).
+- Icon states (running / degraded / stopped / problem) from the status answer: pure `icon_state(&Value) -> IconState`
+  (running && trusted && firewall_ok -> running; running otherwise -> degraded; not running -> stopped; error ->
+  problem). Generate the four icons at runtime by tinting the default window icon (simple RGBA tint, no new files,
+  no new crates) and update the tray icon from the existing 30 s poll.
+- Keep `bash test.sh` green on Linux and the Windows code compiling (`cargo xwin check --tests`).
 
 ## Facts that hold for every ticket
 
