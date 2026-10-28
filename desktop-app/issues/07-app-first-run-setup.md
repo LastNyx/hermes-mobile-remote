@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: App
-Status: review
+Status: done
 Round: 0
 Blocked by: 05
 Terms: first run, uv, per-user venv, change list
