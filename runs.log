@@ -226,3 +226,4 @@
 20261028-113011	planner	planner	NOTE status 34 done	turns=-	100s	out=None	list$=None	denials=0	-	feature=desktop-app	test=-	in=None	cw=None	cr=None	repo=hermes-mobile-remote	backend=-	ticket=34-win-installer-migration.md	action=status	fmt=1
 20261028-113012	planner	planner	NOTE status 08 done	turns=-	1s	out=None	list$=None	denials=0	-	feature=desktop-app	test=-	in=None	cw=None	cr=None	repo=hermes-mobile-remote	backend=-	ticket=08-app-updates.md	action=status	fmt=1
 20261028-113013	planner	planner	NOTE status 34 done	turns=-	1s	out=None	list$=None	denials=0	-	feature=desktop-app	test=-	in=None	cw=None	cr=None	repo=hermes-mobile-remote	backend=-	ticket=34-fix-uninstall-stops-running-bridge.md	action=status	fmt=1
+20261028-113014	planner	planner	NOTE status 09 done	turns=-	1s	out=None	list$=None	denials=0	-	feature=desktop-app	test=-	in=None	cw=None	cr=None	repo=hermes-mobile-remote	backend=-	ticket=09-app-ci-release.md	action=status	fmt=1
