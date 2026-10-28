@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: Linux
-Status: review
+Status: done
 Round: 0
 Blocked by: 01, 20
 Terms: app-only mode, PDEATHSIG
