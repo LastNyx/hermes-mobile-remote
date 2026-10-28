@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: Windows
-Status: review
+Status: done
 Round: 0
 Blocked by: 01, 05, 07
 Terms: Job Object, autostart

@@ -213,3 +213,4 @@
 20261028-112447	planner	planner	NOTE status 30 done	turns=-	1s	out=None	list$=None	denials=0	-	feature=desktop-app	test=-	in=None	cw=None	cr=None	repo=hermes-mobile-remote	backend=-	ticket=30-win-native-host.md	action=status	fmt=1
 20261028-112448	planner	planner	NOTE status 30 done	turns=-	1s	out=None	list$=None	denials=0	-	feature=desktop-app	test=-	in=None	cw=None	cr=None	repo=hermes-mobile-remote	backend=-	ticket=30-fix-winapi-com.md	action=status	fmt=1
 20261028-112449	planner	planner	NOTE status 31 done	turns=-	1s	out=None	list$=None	denials=0	-	feature=desktop-app	test=-	in=None	cw=None	cr=None	repo=hermes-mobile-remote	backend=-	ticket=31-win-firewall-elevation.md	action=status	fmt=1
+20261028-112450	planner	planner	NOTE status 32 done	turns=-	1s	out=None	list$=None	denials=0	-	feature=desktop-app	test=-	in=None	cw=None	cr=None	repo=hermes-mobile-remote	backend=-	ticket=32-win-app-owns-bridge.md	action=status	fmt=1
