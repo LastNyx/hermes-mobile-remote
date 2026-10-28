@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: App
-Status: todo
+Status: done
 Round: 2
 Blocked by: 33
 Terms: tray
@@ -22,3 +22,5 @@ Mount the app in vitest, dispatch a `navigate` event with detail `pair`, and ass
 - [ ] The listener is removed on unmount
 
 ## Result
+
+Planner Verify: PASS planner fixed directly (413aba2, trivial lane)
