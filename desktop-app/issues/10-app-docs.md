@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: App
-Status: in-progress
+Status: done
 Round: 0
 Blocked by: 06, 07, 08, 20, 21, 22, 23, 30, 31, 32, 33, 34
 Terms: docs
@@ -65,3 +65,5 @@ Linux run modes, linger, GNOME without tray, SmartScreen on the unsigned install
   systemd units from a test.
 
 ## Result
+
+Planner Verify: PASS docs worker in 2 parts (f1c8089 + part 2): README/INSTALL/TROUBLESHOOTING/PLATFORMS, SECURITY/ARCHITECTURE/BRIDGE_API/CHANGELOG Unreleased/ROADMAP, replaced-by header, docs/desktop-app-manual-checks.m
