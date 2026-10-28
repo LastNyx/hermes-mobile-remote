@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: Windows
-Status: todo
+Status: in-progress
 Round: 1
 Blocked by: 33
 Terms: flyout, tray
