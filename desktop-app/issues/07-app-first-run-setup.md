@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: App
-Status: in-progress
+Status: review
 Round: 0
 Blocked by: 05
 Terms: first run, uv, per-user venv, change list
@@ -119,3 +119,5 @@ Commit 608928e. `cd desktop && bash test.sh`: cargo 12 passed, vitest 12 passed,
 - Data dir is `venv.parent()` from `BridgePaths`, so on Linux it ignores `XDG_DATA_HOME`, as `BridgePaths` does. Planner may want to align.
 - The real command uses `NoOsStep` until tickets 20 and 32. Update mode is chosen by the UI as `!needed`; nothing triggers it automatically after an app update.
 Not checked: real download from GitHub, real `uv sync`, Windows build, Tauri event delivery in a running app, `RealFs` copy skip list, `RealFs::which`.
+
+Planner Verify: PASS real Setup via example probe, isolated HOME, PATH without uv: uv 0.13.6 downloaded from GitHub + SHA-256 ok into <data>/uv, bridge source copied (no .venv/tests), uv sync built venv with hermes-remote
