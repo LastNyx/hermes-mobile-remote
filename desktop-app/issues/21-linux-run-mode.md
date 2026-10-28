@@ -7,7 +7,7 @@ Status: todo
 Round: 0
 Blocked by: 01, 20
 Terms: app-only mode, PDEATHSIG
-Seam: Rust `RunMode` switcher over `ServiceControl` and a `ChildSupervisor` that spawns `hermes-remote-bridge supervise` with `PR_SET_PDEATHSIG` (via `pre_exec`), injected for tests.
+Seam: new `desktop/src-tauri/src/run_mode.rs`: Rust `RunMode` switcher over `ServiceControl` and a `ChildSupervisor` that spawns `hermes-remote-bridge supervise` with `PR_SET_PDEATHSIG` (via `pre_exec`), injected for tests.
 Test command: cd desktop && bash test.sh
 Verify: User on the Arch PC: switch to app-only, `kill -9` the app, the bridge is gone; switch back, the service runs.
 
@@ -29,6 +29,26 @@ settings page says app-only mode has no systemd sandboxing. The mode is saved in
 - [ ] Exit 76 surfaces as a port-conflict message
 - [ ] UI: run mode control with the no-sandbox note; start-at-login/linger disabled in app-only mode
 - [ ] An API without its screen fails this ticket
+
+## Planner notes (2026-10-28)
+
+- New module `desktop/src-tauri/src/run_mode.rs`, `pub mod` in `lib.rs`. Reuse `linux_service::ServiceControl`
+  (`stop`, `disable`, `enable_now`, `status`) and `bridge::BridgePaths` (venv exe). `libc` is already a unix
+  dependency in Cargo.toml (`libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM)` inside
+  `std::os::unix::process::CommandExt::pre_exec`). Spawn `supervise` with stdin piped (ticket 01-fix: the
+  supervisor stops when its stdin closes), stdout/stderr to null.
+- `ChildSupervisor` trait: `spawn() -> Result<(), String>`, `stop() -> Result<(), String>` (close stdin, then
+  wait up to 10 s, then kill), `exit_code() -> Option<i32>` (76 = port conflict). The real one keeps the
+  `std::process::Child` in app state (`tauri::State<Mutex<..>>` or a `OnceLock<Mutex<..>>`).
+- Mode saved as `run_mode = "always-on" | "app-only"` in `<app config dir>/desktop.toml`, where the app config dir
+  is `BridgePaths::config_dir` (same folder as the bridge config; separate file so the bridge never reads it).
+  Read it with `bridge::config_value`. Default `always-on`.
+- In app-only mode, `control.rs`'s Linux backend start/stop act on the child instead of systemctl, and on app
+  start the app spawns the child. Add commands `get_run_mode` / `set_run_mode {mode}` (register in lib.rs);
+  Settings.vue gets the control, the no-sandbox note, and disables start-at-login / linger in app-only mode.
+- Tests never spawn the real bridge: fake ServiceControl and fake ChildSupervisor record the call order.
+  One test may spawn `/bin/sh -c 'exit 76'`-style children only through an injected command builder to check the
+  pre_exec hook is set (assert via the fake that `pdeathsig` was requested).
 
 ## Facts that hold for every ticket
 
