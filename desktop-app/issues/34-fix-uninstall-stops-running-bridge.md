@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: Windows
-Status: review
+Status: done
 Round: 1
 Blocked by: 34
 Terms: uninstall, bridge
