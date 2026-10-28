@@ -7,7 +7,7 @@ Status: todo
 Round: 0
 Blocked by: 07
 Terms: updater, release check
-Seam: Rust `UpdateCheck` with an injected GitHub Releases client; the Tauri updater plugin for NSIS/AppImage.
+Seam: new `desktop/src-tauri/src/updates.rs`: Rust `UpdateCheck` with an injected GitHub Releases client; the Tauri updater plugin for NSIS/AppImage.
 Test command: cd desktop && bash test.sh
 Verify: Planner points the check at a test release JSON; the user sees the banner. Real update is a manual check after the first release.
 
@@ -28,6 +28,26 @@ update path re-syncs the venv.
 - [ ] Banner shows only when the release version is newer (semver compare)
 - [ ] UI: banner with link on .deb; 'Restart to update' on updater builds
 - [ ] An API without its screen fails this ticket
+
+## Planner notes (2026-10-28)
+
+- New module `desktop/src-tauri/src/updates.rs` (logic + tests), `pub mod` in `lib.rs`; commands
+  `update_check` and `update_install` registered in `lib.rs`; a banner component (e.g. `desktop/src/UpdateBanner.vue`)
+  shown by `App.vue`; calls added to `desktop/src/api.js`. Use `semver` (already in Cargo.toml) for the compare
+  and `ureq` for the GitHub request. Do not edit Cargo.toml, package.json or tauri.conf.json.
+- Bundle type: `tauri::utils::platform::bundle_type()` returns `Option<BundleType>` (`Deb`, `AppImage`, `Nsis`,
+  ...; None in a dev build). Map Deb -> release check, AppImage/Nsis -> updater, None -> release check. Inject it.
+- The repo's GitHub releases also carry the Android app: tags look like `v1.25.0` with `.apk` assets only. Desktop
+  releases will use tags `desktop-v<semver>` (planner decision; ticket 09 makes the CI produce them). The release
+  check lists `https://api.github.com/repos/nideta231/hermes-mobile-remote/releases?per_page=20`, keeps tags
+  starting with `desktop-v`, takes the highest semver above the app version, and links its `html_url`.
+  Send a `User-Agent` header (GitHub requires one). No such release yet is the normal case: no banner, no error.
+- Updater builds: use `tauri_plugin_updater::UpdaterExt` (`app.updater()?.check().await`) behind a trait so tests
+  use a fake; "Restart to update" downloads + installs then calls `app.restart()`. Before restarting, call the
+  existing setup update path (`setup` with `update: true`) is NOT possible in-process; instead write a marker
+  `<config_dir>/needs-resync` and on next start App.vue runs `setup_run {update: true}` when the marker exists
+  (then the command removes it). Put the marker logic in Rust with a test.
+- Network errors in the check are logged and show nothing (no banner, no error) to keep the UI calm.
 
 ## Facts that hold for every ticket
 
