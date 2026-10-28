@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: Windows
-Status: in-progress
+Status: review
 Round: 0
 Blocked by: 07, 31, 32
 Terms: NSIS, migration, uninstall
@@ -93,3 +93,15 @@ rule (one UAC, ticket 31), keep data unless "remove my data" is ticked. Hermes' 
   systemd units from a test.
 
 ## Result
+
+Commit: 8267209. `bash test.sh`: cargo 48 passed, vitest 18 passed, vite build ok.
+- Criterion 1 (path-shaped match, own pid skipped): `old_script_processes_match_by_path_shaped_command_line_only`.
+- Criterion 2 (task argv, absent ok): `task_deletion_argv_is_exact_and_an_absent_task_is_fine`.
+- Criterion 3 (data dirs untouched): `migration_leaves_the_data_dirs_alone` (weak: Migration has no data access by construction).
+- Criterion 4 (order): `uninstall_stops_the_bridge_before_removing_autostart_and_the_firewall_rule`; also covers `--uninstall`/`--remove-data` parsing. WindowsOsStep migrate-first order in the existing win_child test.
+- Reuse: ProcessRunner/SystemRunner, BridgePaths, ChildSupervisor, sysinfo (already a dep); nothing existing for process matching.
+- Deviation: the firewall step runs `firewall remove --port N` WITHOUT `--elevated` (the bridge CLI shows the UAC itself; `--elevated` is the relaunched child and would just fail unelevated).
+- Notes added: 1. Uninstall `--remove-data` deletes the parent of config_dir (`%LOCALAPPDATA%\hermes-remote`).
+Not checked: Windows build (`cargo xwin check`), real sysinfo kill/cmd behaviour, the NSIS hook (planner's).
+
+Planner Verify: SKIP no Windows host (NSIS install over a script install, uninstall from Settings>Apps need Windows/CI; makensis not on this PC). Checked: suite green, xwin check --tests clean; planner added NSIS config (
