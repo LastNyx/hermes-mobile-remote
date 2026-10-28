@@ -19,3 +19,4 @@ Chat-made rules the files cannot show, one line each, newest last.
 - 2026-10-28 09:18 planner: untracked docs/fix-background-work-dies-on-app-close.md (written 08:11 by another session/user, about Hermes gateway reaping) left in place, added to .git/info/exclude so workers see a clean tree; 06-fix redispatched
 - 2026-10-28 09:24 planner 20: Linux Control + OsStep in linux_service.rs wired into control.rs backend()/setup.rs; linger via get_linger/set_linger commands
 - 2026-10-28 09:28 planner 21: run mode in <config_dir>/desktop.toml (run_mode key), supervise child with piped stdin + PDEATHSIG; get_run_mode/set_run_mode commands
+- 2026-10-28 09:33 planner 22: tray probe via dbus-send NameHasOwner StatusNotifierWatcher; trust notification polled from the app, asked ids in <config_dir>/desktop-asked.json. Known overlap: bridge serve still runs its own notify-send prompt (cli._ask_to_trust) -> recorded in design doc as open item

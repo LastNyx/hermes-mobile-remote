@@ -7,7 +7,7 @@ Status: todo
 Round: 0
 Blocked by: 06
 Terms: app window, optional tray
-Seam: Rust `TrayPolicy` deciding whether to create a tray (injected `has_status_notifier()` probe), plus the window/menu wiring in the Tauri setup.
+Seam: new `desktop/src-tauri/src/tray.rs`: Rust `TrayPolicy` deciding whether to create a tray (injected `has_status_notifier()` probe), plus the window/menu wiring in the Tauri setup.
 Test command: cd desktop && bash test.sh
 Verify: User on the Arch PC (KDE or GNOME): the app opens from the launcher as a normal window; with a tray, its menu 'Open Hermes Remote' shows the window; without a tray, nothing breaks; untrusted network notification opens the window.
 
@@ -29,6 +29,26 @@ opens the window; a decline is remembered (same rule as `host/linux.py:prompt_tr
 - [ ] Menu items and their actions (fake app handle)
 - [ ] Close-window behaviour with and without tray
 - [ ] Trust notification fires once per untrusted network; decline remembered
+
+## Planner notes (2026-10-28)
+
+- New module `desktop/src-tauri/src/tray.rs` (logic + tests), wired from `lib.rs` `.setup(...)` (keep the existing
+  `run_mode::on_app_start()` call) and `.on_window_event(...)`. Tauri 2.12 with the `tray-icon` feature is
+  already in Cargo.toml (`tauri::tray::TrayIconBuilder`, `tauri::menu::{Menu, MenuItem}`); do not edit Cargo.toml.
+- StatusNotifier probe: the real one asks the session bus whether `org.kde.StatusNotifierWatcher` has an owner by
+  running `dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus
+  org.freedesktop.DBus.NameHasOwner string:org.kde.StatusNotifierWatcher` through `bridge::ProcessRunner`
+  (output contains `boolean true`). Any error = no tray. Tests use a fake runner.
+- Menu actions reuse existing code: Open = show + focus the `main` window; start/stop = `control::backend()`
+  start/stop (the same backend the UI switch uses); Quit = `app.exit(0)`.
+- Close-window: with a tray, `CloseRequested` -> `prevent_close()` + hide; without a tray, let it close (app quits;
+  in always-on mode the systemd service keeps running; in app-only mode the child stops with the app).
+- Trust notification: poll `bridge::Fallback::real().status()` every 30 s on a background thread; when
+  `data.network.trusted == false`, notify once per network id via `tauri_plugin_notification`
+  ("Trust this network?" / network name); clicking it shows the window. Remember asked/declined network ids in
+  `<config_dir>/desktop-asked.json` (`BridgePaths::config_dir`) so it is not re-asked after a restart; the
+  Home screen's existing Trust action is how the user trusts it. Logic (should_notify(id, asked_set)) is unit
+  tested; the timer/notification wiring is not.
 
 ## Facts that hold for every ticket
 
