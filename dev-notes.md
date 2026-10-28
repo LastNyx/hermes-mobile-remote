@@ -22,4 +22,5 @@
 - Desktop setup: src-tauri/src/setup.rs (`Setup` with injected Downloader/ProcessRunner/Fs/OsStep/BridgeApi); `ProcessRunner::run_with(exe,args,env,cwd)` is the required method, `run` is a default over it.
 - Desktop Rust: `bridge::config_value(text, key)` is the one `key = value` config.toml reader; `settings_in(dir, &dyn Control)` takes start_at_logon from `Control::start_at_logon`.
 - Desktop UI: Setup.vue listens via api.js `onSetupProgress` (dynamic import of @tauri-apps/api/event); ui.test.js mocks that module with a `listen` that stores the handler.
+- Desktop Linux: src-tauri/src/linux_service.rs (`ServiceControl`/`Systemd`, `LinuxControl`, `LinuxOsStep`, get/set_linger); `backend()` in control.rs and `with_real` in setup.rs pick it under cfg(target_os="linux"). Fake runner there matches replies by argv-prefix.
 - Desktop Rust: `RealFs::copy_dir` (setup.rs) replaces the destination (remove then copy); `COPY_SKIP` applies to the top level only. ui.test.js `listening` counts live setup-progress listeners.

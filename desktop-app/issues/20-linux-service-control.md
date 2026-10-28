@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: Linux
-Status: in-progress
+Status: review
 Round: 0
 Blocked by: 05, 07
 Terms: always-on mode, user service, linger
@@ -90,3 +90,15 @@ Always-on mode, the Linux default (D19, D32, D33):
   systemd units from a test.
 
 ## Result
+
+Commit 0196033. `cd desktop && bash test.sh`: cargo 19 passed, vitest 14 passed, vite build ok.
+- AC1 `unit_is_the_template_with_bin_replaced_then_reloaded_and_enabled_now` (linux_service.rs)
+- AC2 `switch_maps_to_start_stop_and_status_is_parsed_from_is_active`
+- AC3 `start_at_login_and_linger_argv_are_exact_and_polkit_refusal_is_explained`
+- AC4/5 ui.test.js "keep running after logout shows only with start at login..." (mounts App, Settings tab); API wired to screen via get_linger/set_linger commands registered in lib.rs.
+- Reused: `bridge::ProcessRunner`/`SystemRunner`/`BridgePaths`, `Control`, `OsStep`, `guard` in Settings.vue; nothing existing for systemd.
+- Tests written with the code in one pass, so no separate red run (new module).
+- Added trait methods beyond the list (is_enabled, enable_now, linger) for the wiring the notes ask for. Notes added: 1.
+Not checked: real systemctl/loginctl on the Arch PC, polkit prompt, install.sh takeover on a live unit; Windows build of the cfg branches.
+
+Planner Verify: PASS real Systemd over SystemRunner on this PC: is-active/is-enabled parse ok, linger=true matches loginctl Linger=yes; write_unit into a temp dir = template with @BIN@ replaced, byte-identical, daemon-rel
