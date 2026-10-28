@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: Windows
-Status: in-progress
+Status: review
 Round: 0
 Blocked by: None
 Terms: default route, router MAC, connection profile, comtypes
@@ -74,3 +74,15 @@ comtypes is added to `pyproject.toml` (Windows marker) by the planner before dis
   systemd units from a test.
 
 ## Result
+
+Commit: 48b6754. Tests: `cd bridge && uv run pytest -q` -> 179 passed.
+- AC1 `test_windows_methods_return_the_old_shapes_from_fixture_data` (route, MAC, firewall, service_state; fake winapi) + `test_windows_service_state_unknown_when_bridge_unreachable`.
+- AC2 same fixture fails any `subprocess.run/Popen`; used by all three new tests.
+- AC3 `test_connection_profile_id_keeps_the_instance_id_format` (`winapi.instance_id` gives `{UPPER-GUID}`).
+- AC4 whole suite green. Three old PowerShell-mocking tests (network_profile, gateway_mac, service_state) were replaced as they asserted the removed behaviour.
+- Reuse: `parse_default_routes`, `normalise_mac` reused; no existing Win32 helper found. Notes: 1 added.
+- `ps`, `ps_json`, `powershell`, `encode_script`, `run_elevated` left in windows.py (unused except `run_elevated`; planner deletes).
+- service_state probes 127.0.0.1:8650 (`winapi.BRIDGE_PORT`), not the configured port.
+Not checked: real ctypes/COM code in winapi.py (struct layouts, comtypes enumeration) never ran, as there is no Windows here; needs the planner's side-by-side Verify.
+
+Planner Verify: SKIP no Windows host here (side-by-side PowerShell vs native, timings need a Windows PC/CI); fakes cover parsing; Sonnet subagent reviewing winapi.py struct layouts/COM
