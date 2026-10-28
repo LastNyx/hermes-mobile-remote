@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: Windows
-Status: todo
+Status: review
 Round: 0
 Blocked by: 30, 31, 34
 Terms: cleanup
@@ -62,3 +62,5 @@ PowerShell path is gone.
   systemd units from a test.
 
 ## Result
+
+Planner Verify: PASS planner-run 0692a8f: deleted install.ps1/.cmd, tray.cmd, pair.cmd, bridge/windows/*.ps1, ps/ps_json/encode_script/run_elevated; CI 'No PowerShell' check passes locally; actionlint clean; suite green. 
