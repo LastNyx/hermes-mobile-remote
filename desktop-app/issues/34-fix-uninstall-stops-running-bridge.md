@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: Windows
-Status: in-progress
+Status: review
 Round: 1
 Blocked by: 34
 Terms: uninstall, bridge
@@ -23,3 +23,14 @@ executable path (the `ProcessList` already used by migration), and keep the orde
 - [ ] With a fake process list holding a running bridge process of this install's exe, `Uninstall::run` ends it before the `reg delete` call.
 - [ ] A process with another path (or the uninstall process itself) is never ended.
 - [ ] No running bridge: uninstall continues without error.
+
+## Result
+Commit: 02638c8. `bash test.sh`: 53 rust tests + 20 UI tests passed.
+Criteria 1 and 2: `uninstall_ends_this_installs_bridge_before_reg_delete_and_spares_others`. Criterion 3: `uninstall_without_a_running_bridge_continues`.
+The tests were written together with the code, so I did not see them fail first.
+Reused: the existing `ProcessList`/`SysProcesses` in migration.rs. I added `ProcInfo.exe` and `Uninstall.{procs,own_pid,app_exe}`, and lib.rs passes the real values.
+Notes added: 1 line in `.scratch/dev-notes.md`.
+Cause: `--uninstall` runs in a new process, so `app_child().stop()` has no child to stop. The bridge started by the installed app was never ended (migration.rs `Uninstall::run`).
+Not checked: a real Windows uninstall. `SysProcesses` exe lookup (`with_exe`) was only compiled and not run against live processes.
+
+Planner Verify: PASS tests with fake process list; xwin check clean. Note: killing the app exe closes its Job Object, which also ends serve (python.exe child not matched by path)
