@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: Windows
-Status: review
+Status: done
 Round: 0
 Blocked by: 30, 31, 34
 Terms: cleanup
