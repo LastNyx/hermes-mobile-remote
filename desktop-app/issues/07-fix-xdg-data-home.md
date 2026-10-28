@@ -3,7 +3,7 @@
 Lane: quick
 Branch: feature/desktop-app
 Platform: App
-Status: review
+Status: done
 Round: 1
 Blocked by: 07-app-first-run-setup.md
 Terms: per-user venv, bridge paths
