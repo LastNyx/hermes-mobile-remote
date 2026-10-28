@@ -7,7 +7,7 @@ Status: todo
 Round: 0
 Blocked by: 05, 07
 Terms: always-on mode, user service, linger
-Seam: Rust trait `ServiceControl` (status, start, stop, enable, disable, linger_on, linger_off, write_unit) with a `Systemd` implementation over an injected `ProcessRunner`.
+Seam: new `desktop/src-tauri/src/linux_service.rs`: Rust trait `ServiceControl` (status, start, stop, enable, disable, linger_on, linger_off, write_unit) with a `Systemd` implementation over an injected `ProcessRunner`.
 Test command: cd desktop && bash test.sh
 Verify: User on the Arch PC: setup writes and enables the unit, the switch starts/stops it, closing the app leaves the bridge running, linger toggles (`loginctl show-user $USER -p Linger`).
 
@@ -34,6 +34,24 @@ Always-on mode, the Linux default (D19, D32, D33):
 - [ ] Start-at-login and linger argv exact; linger hidden unless enabled; polkit failure message
 - [ ] UI: settings shows start at login and keep running after logout with the rules above
 - [ ] An API without its screen fails this ticket
+
+## Planner notes (2026-10-28)
+
+- New module `desktop/src-tauri/src/linux_service.rs` (tests in the same file), `pub mod` in `lib.rs`. Use the
+  existing `bridge::ProcessRunner` (`run_with`) as the injected runner; `bridge::BridgePaths` gives the venv exe.
+- Wire it in, do not add new commands: `control.rs` `backend()` returns a Linux `Control` built on `ServiceControl`
+  under `cfg(target_os = "linux")` (start/stop = systemctl start/stop, `start_at_logon` = `is-enabled`,
+  set = enable/disable; firewall_fix/open_logs stay as they are). `setup.rs` uses a Linux `OsStep` (describe:
+  "systemd user service hermes-remote-bridge.service, enabled at login"; apply: write unit + daemon-reload +
+  `enable --now`; stop_bridge/start_bridge: systemctl stop/start) instead of `NoOsStep` on Linux.
+- Template: embed `bridge/systemd/hermes-remote-bridge.service` with `include_str!` (path relative to the crate:
+  `../../../bridge/systemd/hermes-remote-bridge.service`); replace `@BIN@` with the venv exe path. Unit dir:
+  `$XDG_CONFIG_HOME/systemd/user` (default `~/.config/systemd/user`), like install.sh line 13.
+- Linger: add commands `get_linger` / `set_linger {on}` in `control.rs` (register them in `lib.rs`); status from
+  `loginctl show-user $USER -p Linger` (`Linger=yes`). Settings.vue shows "Keep running after logout" only
+  when start at login is on; a non-zero exit from enable-linger shows "needs your password: run
+  `loginctl enable-linger` in a terminal".
+- Never run real systemctl/loginctl in tests (fake runner only).
 
 ## Facts that hold for every ticket
 

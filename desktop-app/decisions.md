@@ -17,3 +17,4 @@ Chat-made rules the files cannot show, one line each, newest last.
 - 2026-10-28 06:55 user: max_workers 1 for this project (no parallel dispatch)
 - 2026-10-28 09:18 review 2-1 FAIL: both findings confirmed; possible items (duplicate setup listener, stale files on update copy, top-level-only tests skip) + hardcoded 20 s text folded into 07-fix; start_at_logon possible folded into 06-fix by reviewer. Serial: 06-fix then 07-fix (both edit bridge.rs)
 - 2026-10-28 09:18 planner: untracked docs/fix-background-work-dies-on-app-close.md (written 08:11 by another session/user, about Hermes gateway reaping) left in place, added to .git/info/exclude so workers see a clean tree; 06-fix redispatched
+- 2026-10-28 09:24 planner 20: Linux Control + OsStep in linux_service.rs wired into control.rs backend()/setup.rs; linger via get_linger/set_linger commands
