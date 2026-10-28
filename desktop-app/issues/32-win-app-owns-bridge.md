@@ -3,11 +3,11 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: Windows
-Status: todo
+Status: in-progress
 Round: 0
 Blocked by: 01, 05, 07
 Terms: Job Object, autostart
-Seam: Rust `ChildSupervisor` Windows implementation: spawn `supervise` with CREATE_NO_WINDOW, assign it to a Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE (Win32 calls behind a trait for tests); autostart through the Tauri autostart plugin behind a trait.
+Seam: new `desktop/src-tauri/src/win_child.rs` (and the cfg(windows) wiring in `control.rs`, `run_mode.rs`, `setup.rs`, `lib.rs`): Rust `ChildSupervisor` Windows implementation: spawn `supervise` with CREATE_NO_WINDOW, assign it to a Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE (Win32 calls behind a trait for tests); autostart through the Tauri autostart plugin behind a trait.
 Test command: cd desktop && bash test.sh
 Verify: Planner on this PC: start app -> bridge answers; quit -> bridge gone and port free; `taskkill /F` the app -> bridge gone; Run key present under HKCU\...\Run and visible in Task Manager > Startup.
 
@@ -28,6 +28,37 @@ app; the settings page says so.
 - [ ] Autostart on/off maps to the plugin
 - [ ] UI: start at logon toggle and the 'crash = bridge down' note
 - [ ] An API without its screen fails this ticket
+
+## Planner notes (2026-10-28)
+
+- Reuse, do not duplicate: `run_mode::ProcessSupervisor<S: Spawner>` already implements spawn/stop (close stdin,
+  wait, kill after grace)/exit_code over the `Spawner`/`Proc` traits; today `OsSpawner` is `cfg(unix)` only. Add a
+  `cfg(windows)` `OsSpawner` in `desktop/src-tauri/src/win_child.rs` (re-exported so `ProcessSupervisor<OsSpawner>`
+  works on both) that spawns with `CREATE_NO_WINDOW` (`std::os::windows::process::CommandExt::creation_flags`),
+  stdin piped, stdout/stderr null, then assigns the child to a Job Object. Make `app_child()` available on
+  Windows too (it is `cfg(target_os = "linux")` now) and call `on_app_start()` behavior on Windows: always spawn
+  (no run mode on Windows, D34).
+- Job Object through a `JobApi` trait (fake in tests): `CreateJobObjectW(null, null)`,
+  `SetInformationJobObject(JobObjectExtendedLimitInformation, JOBOBJECT_EXTENDED_LIMIT_INFORMATION with
+  BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE)`, `AssignProcessToJobObject(job,
+  child handle)` (`std::os::windows::io::AsRawHandle`). Keep the job handle open for the app's lifetime (store it in
+  a static); the OS closes it when the app dies, which kills the bridge. `windows-sys` 0.61 with the needed features
+  (Win32_Foundation, Win32_System_JobObjects, Win32_System_Threading, Win32_Security) is already in Cargo.toml.
+- Quit: lib.rs gets an `.on_window_event` / `RunEvent::ExitRequested` handler (or the tray Quit from ticket 22)
+  that calls `app_child().stop()` before exit on Windows.
+- Control on Windows: `control.rs` `backend()` for `cfg(windows)` = a `WindowsControl` whose start/stop act on
+  `app_child()`, start_at_logon / set_start_at_logon go through an `Autostart` trait implemented with
+  `tauri_plugin_autostart::ManagerExt` (`app.autolaunch().enable()/disable()/is_enabled()`); since `backend()` has
+  no AppHandle, store the AppHandle in a `OnceLock` during `.setup` and read it there. firewall_fix/open_logs stay
+  Unsupported (ticket 31 / later).
+- Setup OS step on Windows: `WindowsOsStep` (describe: "Start at logon: HKCU Run key 'Hermes Remote'" ;
+  apply = autostart enable + spawn the child; stop_bridge/start_bridge = app_child stop/spawn).
+- UI: Settings already has the start-at-logon toggle; add the Windows-only note "If the app crashes the bridge
+  stops too; start Hermes Remote from the Start menu again." (show it when `get_settings` reports
+  `platform: "windows"`; add that field).
+- This PC is Linux: `bash test.sh` must stay green here (cfg(windows) code is not compiled by it). The planner also
+  runs `cargo xwin check --tests --target x86_64-pc-windows-msvc`; keep the Windows code compiling. Put pure logic
+  (flags, call order) in code that compiles on both so tests run on Linux with the fake `JobApi`.
 
 ## Facts that hold for every ticket
 
