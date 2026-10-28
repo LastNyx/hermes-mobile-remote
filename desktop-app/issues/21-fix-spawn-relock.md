@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: Linux
-Status: review
+Status: done
 Round: 1
 Blocked by: 21
 Terms: app-only mode

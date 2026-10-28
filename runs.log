@@ -165,3 +165,4 @@
 20261028-094645	planner	planner	NOTE status 20 done	turns=-	1s	out=None	list$=None	denials=0	-	feature=desktop-app	test=-	in=None	cw=None	cr=None	repo=hermes-mobile-remote	backend=-	ticket=20-linux-service-control.md	action=status	fmt=1
 20261028-094646	planner	planner	NOTE status 21 done	turns=-	1s	out=None	list$=None	denials=0	-	feature=desktop-app	test=-	in=None	cw=None	cr=None	repo=hermes-mobile-remote	backend=-	ticket=21-linux-run-mode.md	action=status	fmt=1
 20261028-094647	planner	planner	NOTE status 22 done	turns=-	1s	out=None	list$=None	denials=0	-	feature=desktop-app	test=-	in=None	cw=None	cr=None	repo=hermes-mobile-remote	backend=-	ticket=22-linux-window-and-tray.md	action=status	fmt=1
+20261028-094648	planner	planner	NOTE status 21 done	turns=-	1s	out=None	list$=None	denials=0	-	feature=desktop-app	test=-	in=None	cw=None	cr=None	repo=hermes-mobile-remote	backend=-	ticket=21-fix-spawn-relock.md	action=status	fmt=1
