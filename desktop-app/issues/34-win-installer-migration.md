@@ -3,11 +3,11 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: Windows
-Status: todo
+Status: in-progress
 Round: 0
 Blocked by: 07, 31, 32
 Terms: NSIS, migration, uninstall
-Seam: Rust `Migration` (find old PowerShell tray / run-bridge by command line via sysinfo, `schtasks /Query|/Delete`) and `Uninstall` steps behind traits; NSIS bundle config by the planner.
+Seam: new `desktop/src-tauri/src/migration.rs` (plus the cfg(windows) call in `setup.rs`'s Windows OS step and an `uninstall` CLI flag in `desktop/src-tauri/src/main.rs`/`lib.rs`): Rust `Migration` (find old PowerShell tray / run-bridge by command line via sysinfo, `schtasks /Query|/Delete`) and `Uninstall` steps behind traits; NSIS bundle config by the planner.
 Test command: cd desktop && bash test.sh
 Verify: Planner on this PC (currently a script install): install the built NSIS -> old tray gone, old task deleted, Run key set, paired devices and trusted networks kept; uninstall from Settings > Apps removes autostart and the firewall rule after one UAC.
 
@@ -29,6 +29,32 @@ rule (one UAC, ticket 31), keep data unless "remove my data" is ticked. Hermes' 
 - [ ] Task deletion argv exact; absent task is fine
 - [ ] Data dirs untouched by migration
 - [ ] Uninstall order: bridge stopped before autostart/firewall removal
+
+## Planner notes (2026-10-28)
+
+- Process match: copy install.ps1:91 exactly: a `powershell.exe`/`pwsh.exe` process whose command line matches
+  the regex `-File\s+(?:"[^"]*|\S*)[\\/](tray|run-bridge)\.ps1` (case-insensitive). Use `sysinfo` (already in
+  Cargo.toml; `System::new()` + `refresh_processes_specifics(ProcessesToUpdate::All, true,
+  ProcessRefreshKind::nothing().with_cmd(UpdateKind::Always))`, `Process::cmd()` joined with spaces) behind a
+  `ProcessList` trait (fake in tests). Never match the app's own pid. Kill with `Process::kill()`. No new crates:
+  write the match without the `regex` crate (a small hand matcher over the joined command line is fine) and test it
+  against: `-File C:\x\bridge\windows\tray.ps1`, `-File "C:\Program Files\h\bridge\windows\run-bridge.ps1"`,
+  `-Command "... tray.ps1 ..."` (no match), `install.ps1 -File x` (no match), `-File tray.ps1` without a path
+  separator (no match, as the regex requires one).
+- Old task: `schtasks /Query /TN "Hermes Mobile Remote"` (exit 0 = exists) then `schtasks /Delete /TN "Hermes Mobile
+  Remote" /F` through `bridge::ProcessRunner` (CREATE_NO_WINDOW is already applied by SystemRunner on Windows). An
+  absent task is fine.
+- Migration runs once from the Windows OS step of setup (`win_child::WindowsOsStep::apply`, before autostart is
+  turned on); data dirs (`%LOCALAPPDATA%\hermes-remote\config` and `state`) are never touched.
+- Uninstall: `hermes-remote-desktop --uninstall [--remove-data]` (parsed in `run()` before the Tauri builder): stop
+  the bridge child if any (`run_mode::app_child().stop()`), disable autostart (HKCU Run value via the autostart
+  plugin is not available without an app; delete the value `Hermes Remote` under
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` with `reg delete ... /f` through ProcessRunner), delete the old
+  task, run `<venv>\Scripts\hermes-remote-bridge.exe firewall remove --port <port> --elevated` through the bridge's
+  own elevation (`firewall remove` CLI from ticket 31; one UAC), and with `--remove-data` delete
+  `%LOCALAPPDATA%\hermes-remote`. Order is tested: bridge stopped first. Never touch Hermes' `.env`.
+- The NSIS hook that calls `--uninstall` is the planner's (tauri.conf.json is protected); just provide the flag.
+- Keep `bash test.sh` green on Linux and `cargo xwin check --tests` clean.
 
 ## Facts that hold for every ticket
 
