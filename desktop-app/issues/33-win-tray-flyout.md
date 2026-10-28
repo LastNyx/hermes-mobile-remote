@@ -3,7 +3,7 @@
 Lane: full
 Branch: feature/desktop-app
 Platform: Windows
-Status: in-progress
+Status: review
 Round: 0
 Blocked by: 06, 32
 Terms: flyout, tray
@@ -87,3 +87,12 @@ decline is remembered.
   systemd units from a test.
 
 ## Result
+
+Commit d66008c. `cd desktop && bash test.sh`: 44 cargo tests + 18 vitest pass, vite build ok.
+- Placement (all 4 edges, negative-origin monitor, tiny area): flyout.rs tests (5). Menu items/actions incl. Pair: `menu_items_and_their_actions`. Icon states + tint: `icon_state_follows_the_status_answer`. Trust once/remembered: existing `trust_notification_fires_once...` (unchanged, still passes; poll_once now wraps `poll_with_icon`).
+- Reused: MENU_ITEMS/menu_action/poll_once/check_trust, `show_main`. Nothing existing for rect placement or icon tint.
+- Windows glue (WinTaskbar via SHAppBarMessage, toggle_flyout, Focused(false) hide, left-click, tray on Windows) is cfg(windows), not compiled here. Pair navigation uses a DOM CustomEvent via `eval`, App.vue listens (no UI test added; no criterion).
+- Trust notification on Windows calls `show_main` (normal window), not the flyout (no click point).
+Not checked: `cargo xwin check --tests`, any real Windows run, App.vue navigate listener, top/side taskbars on a real PC.
+
+Planner Verify: SKIP no Windows host (flyout position/focus-loss/right-click need Windows). Checked: xwin check --tests clean; Linux regression: tray still registered, trust notification recorded, window opens
